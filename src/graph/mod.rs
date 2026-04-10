@@ -108,6 +108,9 @@ pub struct Graph<N = (), E = ()> {
     // Adjacency: node_id -> { edge_id -> Edge }
     in_edges: HashMap<String, HashMap<String, Edge>>,
     out_edges: HashMap<String, HashMap<String, Edge>>,
+    // Insertion-order tracking for in/out edges per node
+    in_edge_order: HashMap<String, Vec<String>>,
+    out_edge_order: HashMap<String, Vec<String>>,
 
     // Predecessor/successor counts: node -> { neighbor -> count }
     preds: HashMap<String, HashMap<String, usize>>,
@@ -119,6 +122,8 @@ pub struct Graph<N = (), E = ()> {
     // Edge storage
     edge_objs: HashMap<String, Edge>,
     edge_labels: HashMap<String, Option<E>>,
+    // Insertion-order tracking for edges
+    edge_order: Vec<String>,
     edge_count: usize,
 
     // Default label factories
@@ -146,12 +151,15 @@ impl<N, E> Graph<N, E> {
             children: HashMap::new(),
             in_edges: HashMap::new(),
             out_edges: HashMap::new(),
+            in_edge_order: HashMap::new(),
+            out_edge_order: HashMap::new(),
             preds: HashMap::new(),
             sucs: HashMap::new(),
             preds_order: HashMap::new(),
             sucs_order: HashMap::new(),
             edge_objs: HashMap::new(),
             edge_labels: HashMap::new(),
+            edge_order: Vec::new(),
             edge_count: 0,
             default_node_label: None,
             default_edge_label: None,
@@ -314,11 +322,13 @@ impl<N, E> Graph<N, E> {
 
         // Remove incident edges
         if let Some(in_e) = self.in_edges.remove(v) {
+            self.in_edge_order.remove(v);
             for edge in in_e.values() {
                 self.remove_edge_by_obj(edge);
             }
         }
         if let Some(out_e) = self.out_edges.remove(v) {
+            self.out_edge_order.remove(v);
             for edge in out_e.values() {
                 self.remove_edge_by_obj(edge);
             }
@@ -481,9 +491,12 @@ impl<N, E> Graph<N, E> {
         self.edge_count
     }
 
-    /// Returns all edge descriptors.
+    /// Returns all edge descriptors in insertion order.
     pub fn edges(&self) -> Vec<Edge> {
-        self.edge_objs.values().cloned().collect()
+        self.edge_order
+            .iter()
+            .filter_map(|eid| self.edge_objs.get(eid).cloned())
+            .collect()
     }
 
     /// Set an edge with an optional label. Creates endpoint nodes if they don't exist.
@@ -522,6 +535,7 @@ impl<N, E> Graph<N, E> {
 
         self.edge_labels.insert(eid.clone(), label);
         self.edge_objs.insert(eid.clone(), e.clone());
+        self.edge_order.push(eid.clone());
         self.edge_count += 1;
 
         // Update adjacency
@@ -529,10 +543,18 @@ impl<N, E> Graph<N, E> {
             .entry(e.w.clone())
             .or_default()
             .insert(eid.clone(), e.clone());
+        self.in_edge_order
+            .entry(e.w.clone())
+            .or_default()
+            .push(eid.clone());
         self.out_edges
             .entry(e.v.clone())
             .or_default()
             .insert(eid.clone(), e.clone());
+        self.out_edge_order
+            .entry(e.v.clone())
+            .or_default()
+            .push(eid.clone());
 
         {
             let preds_map = self.preds.entry(e.w.clone()).or_default();
@@ -563,10 +585,18 @@ impl<N, E> Graph<N, E> {
                 .entry(e.v.clone())
                 .or_default()
                 .insert(eid.clone(), e.clone());
+            self.in_edge_order
+                .entry(e.v.clone())
+                .or_default()
+                .push(eid.clone());
             self.out_edges
                 .entry(e.w.clone())
                 .or_default()
                 .insert(eid.clone(), e.clone());
+            self.out_edge_order
+                .entry(e.w.clone())
+                .or_default()
+                .push(eid.clone());
 
             {
                 let preds_map = self.preds.entry(e.v.clone()).or_default();
@@ -627,14 +657,21 @@ impl<N, E> Graph<N, E> {
     fn remove_edge_by_id(&mut self, eid: &str) -> Option<E> {
         let e = self.edge_objs.remove(eid)?;
         let label = self.edge_labels.remove(eid).flatten();
+        self.edge_order.retain(|id| id != eid);
         self.edge_count -= 1;
 
         // Update adjacency
         if let Some(in_e) = self.in_edges.get_mut(&e.w) {
             in_e.remove(eid);
         }
+        if let Some(order) = self.in_edge_order.get_mut(&e.w) {
+            order.retain(|id| id != eid);
+        }
         if let Some(out_e) = self.out_edges.get_mut(&e.v) {
             out_e.remove(eid);
+        }
+        if let Some(order) = self.out_edge_order.get_mut(&e.v) {
+            order.retain(|id| id != eid);
         }
 
         // Decrement pred/suc counts and update order tracking
@@ -666,8 +703,14 @@ impl<N, E> Graph<N, E> {
             if let Some(in_e) = self.in_edges.get_mut(&e.v) {
                 in_e.remove(eid);
             }
+            if let Some(order) = self.in_edge_order.get_mut(&e.v) {
+                order.retain(|id| id != eid);
+            }
             if let Some(out_e) = self.out_edges.get_mut(&e.w) {
                 out_e.remove(eid);
+            }
+            if let Some(order) = self.out_edge_order.get_mut(&e.w) {
+                order.retain(|id| id != eid);
             }
             if let Some(preds) = self.preds.get_mut(&e.v) {
                 if let Some(count) = preds.get_mut(&e.w) {
@@ -696,31 +739,49 @@ impl<N, E> Graph<N, E> {
         label
     }
 
-    /// Get incoming edges to a node, optionally filtered by source.
+    /// Get incoming edges to a node, optionally filtered by source (in insertion order).
     pub fn in_edges(&self, v: &str, u: Option<&str>) -> Option<Vec<Edge>> {
         if !self.has_node(v) {
             return None;
         }
-        let edges = self.in_edges.get(v)?;
-        let result: Vec<Edge> = edges
-            .values()
-            .filter(|e| u.is_none() || e.v == u.unwrap())
-            .cloned()
-            .collect();
+        let edges_map = self.in_edges.get(v)?;
+        let order = self.in_edge_order.get(v);
+        let result: Vec<Edge> = match order {
+            Some(ord) => ord
+                .iter()
+                .filter_map(|eid| edges_map.get(eid))
+                .filter(|e| u.is_none() || e.v == u.unwrap())
+                .cloned()
+                .collect(),
+            None => edges_map
+                .values()
+                .filter(|e| u.is_none() || e.v == u.unwrap())
+                .cloned()
+                .collect(),
+        };
         Some(result)
     }
 
-    /// Get outgoing edges from a node, optionally filtered by target.
+    /// Get outgoing edges from a node, optionally filtered by target (in insertion order).
     pub fn out_edges(&self, v: &str, w: Option<&str>) -> Option<Vec<Edge>> {
         if !self.has_node(v) {
             return None;
         }
-        let edges = self.out_edges.get(v)?;
-        let result: Vec<Edge> = edges
-            .values()
-            .filter(|e| w.is_none() || e.w == w.unwrap())
-            .cloned()
-            .collect();
+        let edges_map = self.out_edges.get(v)?;
+        let order = self.out_edge_order.get(v);
+        let result: Vec<Edge> = match order {
+            Some(ord) => ord
+                .iter()
+                .filter_map(|eid| edges_map.get(eid))
+                .filter(|e| w.is_none() || e.w == w.unwrap())
+                .cloned()
+                .collect(),
+            None => edges_map
+                .values()
+                .filter(|e| w.is_none() || e.w == w.unwrap())
+                .cloned()
+                .collect(),
+        };
         Some(result)
     }
 

@@ -93,8 +93,8 @@ pub(crate) fn position_x(g: &Graph<NodeLabel, EdgeLabel>) -> PositionMap {
         }
     }
 
-    let smallest = find_smallest_width_alignment(g, &xss);
-    align_coordinates(&mut xss, &smallest);
+    let (smallest_key, smallest) = find_smallest_width_alignment(g, &xss);
+    align_coordinates(&mut xss, &smallest_key, &smallest);
 
     let graph_label = graph_label(g);
     let align_opt = graph_label.and_then(|gl| gl.align);
@@ -596,15 +596,24 @@ fn sep(
 // Alignment & balancing
 // ---------------------------------------------------------------------------
 
-/// Return the alignment (PositionMap) that results in the smallest total width.
+/// Return the key and alignment (PositionMap) that results in the smallest
+/// total width. Iterates in the same order as dagre.js (ul, ur, dl, dr)
+/// so that when two alignments have the same width, the first one wins.
 pub(crate) fn find_smallest_width_alignment(
     g: &Graph<NodeLabel, EdgeLabel>,
     xss: &XssMap,
-) -> PositionMap {
+) -> (String, PositionMap) {
     let mut best_width = f64::INFINITY;
+    let mut best_key: Option<&str> = None;
     let mut best_xs: Option<&PositionMap> = None;
 
-    for xs in xss.values() {
+    // Iterate in the same order as dagre.js Object.values(xss)
+    for key in &["ul", "ur", "dl", "dr"] {
+        let xs = match xss.get(*key) {
+            Some(xs) => xs,
+            None => continue,
+        };
+
         let mut max = f64::NEG_INFINITY;
         let mut min = f64::INFINITY;
 
@@ -623,17 +632,25 @@ pub(crate) fn find_smallest_width_alignment(
         let width = max - min;
         if width < best_width {
             best_width = width;
+            best_key = Some(key);
             best_xs = Some(xs);
         }
     }
 
-    best_xs.cloned().unwrap_or_default()
+    (
+        best_key.unwrap_or("ul").to_string(),
+        best_xs.cloned().unwrap_or_default(),
+    )
 }
 
 /// Shift all alignments so that left-biased ones share their minimum x with
 /// the smallest-width alignment's minimum, and right-biased ones share their
 /// maximum x with the smallest-width alignment's maximum.
-pub(crate) fn align_coordinates(xss: &mut XssMap, align_to: &PositionMap) {
+pub(crate) fn align_coordinates(
+    xss: &mut XssMap,
+    align_to_key: &str,
+    align_to: &PositionMap,
+) {
     if align_to.is_empty() {
         return;
     }
@@ -650,13 +667,12 @@ pub(crate) fn align_coordinates(xss: &mut XssMap, align_to: &PositionMap) {
     for vert in &["u", "d"] {
         for horiz in &["l", "r"] {
             let key = format!("{}{}", vert, horiz);
+            // Skip the alignment we're aligning to (JS uses reference equality)
+            if key == align_to_key {
+                continue;
+            }
             let xs = match xss.get(&key) {
-                Some(xs) => {
-                    if *xs == *align_to {
-                        continue;
-                    }
-                    xs.clone()
-                }
+                Some(xs) => xs.clone(),
                 None => continue,
             };
 

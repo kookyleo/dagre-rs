@@ -49,32 +49,67 @@ struct RefGraph {
     height: f64,
 }
 
+/// Return node insertion order matching the JS reference generator.
+fn get_node_order(name: &str) -> Vec<String> {
+    let strs: Vec<&str> = match name {
+        "single_node" => vec!["a"],
+        "two_nodes" => vec!["a", "b"],
+        "diamond" => vec!["a", "b", "c", "d"],
+        "chain_5" => vec!["a", "b", "c", "d", "e"],
+        "edge_label" => vec!["a", "b"],
+        "cycle" => vec!["a", "b", "c"],
+        "disconnected" => vec!["a", "b", "c", "d"],
+        "lr_direction" | "bt_direction" | "rl_direction" => vec!["a", "b"],
+        "custom_sep" => vec!["a", "b", "c"],
+        "self_loop" => vec!["a", "b"],
+        "long_edge" => vec!["a", "b", "c"],
+        "fan_out" => vec!["root", "n0", "n1", "n2", "n3", "n4"],
+        "margins" => vec!["a", "b"],
+        "varied_sizes" => vec!["small", "medium", "large"],
+        "parallel_edges" => vec!["a", "b"],
+        "complex" => vec!["a", "b", "c", "d", "e", "f", "g", "h"],
+        "compound" => vec!["a", "b", "c", "group"],
+        "minlen" => vec!["a", "b"],
+        other => panic!("Unknown test case: {}", other),
+    };
+    strs.into_iter().map(|s| s.to_string()).collect()
+}
+
 fn load_reference() -> Vec<TestCase> {
     let data = include_str!("../cross-validate/reference_data.json");
     serde_json::from_str(data).expect("Failed to parse reference data")
 }
 
 fn build_graph(tc: &TestCase) -> (Graph<NodeLabel, EdgeLabel>, LayoutOptions) {
-    // Determine if this is a compound graph
-    let is_compound = tc.name == "compound";
-
+    // dagre.js reference data was generated with compound: true for ALL graphs.
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
         multigraph: true,
-        compound: is_compound,
+        compound: true,
     });
 
-    // Set up nodes
-    for (v, ref_node) in &tc.nodes {
-        let mut label = NodeLabel::default();
-        label.width = ref_node.width;
-        label.height = ref_node.height;
-        g.set_node(v.clone(), Some(label));
+    // Set up nodes in the same order as the JS reference generator.
+    // This is critical because dagre.js preserves insertion order and
+    // the ordering algorithm depends on g.nodes() order.
+    let node_order = get_node_order(&tc.name);
+    for v in &node_order {
+        // For compound "group" node: JS uses g.setNode("group", {}),
+        // giving it default 0×0 dimensions. The reference data stores
+        // the FINAL (computed) dimensions, so we must not use those.
+        if tc.name == "compound" && v == "group" {
+            g.set_node(v.clone(), Some(NodeLabel::default()));
+            continue;
+        }
+        if let Some(ref_node) = tc.nodes.get(v.as_str()) {
+            let mut label = NodeLabel::default();
+            label.width = ref_node.width;
+            label.height = ref_node.height;
+            g.set_node(v.clone(), Some(label));
+        }
     }
 
-    // Special handling for compound "group" node
-    if is_compound {
-        g.set_node("group".to_string(), Some(NodeLabel::default()));
+    // Special handling for compound: set parent relationships
+    if tc.name == "compound" {
         g.set_parent("a", Some("group"));
         g.set_parent("b", Some("group"));
     }

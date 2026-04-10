@@ -56,32 +56,30 @@ pub fn layout(g: &mut Graph<NodeLabel, EdgeLabel>, opts: Option<LayoutOptions>) 
     let acyclicer = g.graph_label::<GraphLabel>().and_then(|gl| gl.acyclicer);
     acyclic::run(g, acyclicer);
 
-    // 4-5. Nesting graph (if compound) + rank assignment
+    // 4-5. Nesting graph + rank assignment
+    // dagre.js always runs nestingGraph.run (even for non-compound graphs)
+    // to ensure nodeRankFactor is set and the graph is connected.
     let compound = g.graph_label::<GraphLabel>().map_or(false, |gl| gl.compound);
-    if compound {
-        let nesting_root = nesting_graph::run(g);
-        if let Some(ref root) = nesting_root {
-            // Rank on non-compound version
-            let ranker = g.graph_label::<GraphLabel>().map_or(Ranker::NetworkSimplex, |gl| gl.ranker);
-            let mut ncg = util::as_non_compound_graph(g);
-            rank::rank(&mut ncg, ranker);
-            // Transfer ranks back
-            for v in ncg.nodes() {
-                if let Some(node) = ncg.node(&v) {
-                    if let Some(rank) = node.rank {
-                        if let Some(gn) = g.node_mut(&v) {
-                            gn.rank = Some(rank);
-                        }
+    let nesting_root = nesting_graph::run(g);
+    {
+        let ranker = g.graph_label::<GraphLabel>().map_or(Ranker::NetworkSimplex, |gl| gl.ranker);
+        let mut ncg = util::as_non_compound_graph(g);
+        rank::rank(&mut ncg, ranker);
+        // Transfer ranks back
+        for v in ncg.nodes() {
+            if let Some(node) = ncg.node(&v) {
+                if let Some(rank) = node.rank {
+                    if let Some(gn) = g.node_mut(&v) {
+                        gn.rank = Some(rank);
                     }
                 }
             }
-            if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
-                gl.nesting_root = Some(root.clone());
-            }
         }
-    } else {
-        let ranker = g.graph_label::<GraphLabel>().map_or(Ranker::NetworkSimplex, |gl| gl.ranker);
-        rank::rank(g, ranker);
+    }
+    if let Some(ref root) = nesting_root {
+        if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+            gl.nesting_root = Some(root.clone());
+        }
     }
 
     // 6. Inject edge label proxies
@@ -90,8 +88,8 @@ pub fn layout(g: &mut Graph<NodeLabel, EdgeLabel>, opts: Option<LayoutOptions>) 
     // 7. Remove empty ranks
     util::remove_empty_ranks(g);
 
-    // 8. Nesting graph cleanup (if compound)
-    if compound {
+    // 8. Nesting graph cleanup
+    {
         let nesting_root = g
             .graph_label::<GraphLabel>()
             .and_then(|gl| gl.nesting_root.clone());
@@ -391,7 +389,7 @@ fn translate_graph(g: &mut Graph<NodeLabel, EdgeLabel>) {
         }
     }
 
-    // Also consider edge label positions
+    // Also consider edge label positions (only when x is set, matching dagre.js)
     for e in g.edges() {
         if let Some(label) = g.edge(&e.v, &e.w, e.name.as_deref()) {
             if let (Some(x), Some(y)) = (label.x, label.y) {
@@ -402,12 +400,7 @@ fn translate_graph(g: &mut Graph<NodeLabel, EdgeLabel>) {
                 min_y = min_y.min(y - hh);
                 max_y = max_y.max(y + hh);
             }
-            for pt in &label.points {
-                min_x = min_x.min(pt.x);
-                max_x = max_x.max(pt.x);
-                min_y = min_y.min(pt.y);
-                max_y = max_y.max(pt.y);
-            }
+            // dagre.js does NOT include edge points in bounding box calculation
         }
     }
 
@@ -511,6 +504,11 @@ fn fixup_edge_label_coords(g: &mut Graph<NodeLabel, EdgeLabel>) {
     for e in g.edges() {
         if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref()) {
             if label.x.is_some() {
+                // First, undo the width inflation from makeSpaceForEdgeLabels
+                if label.labelpos == LabelPos::Left || label.labelpos == LabelPos::Right {
+                    label.width -= label.label_offset;
+                }
+                // Then adjust x based on labelpos
                 match label.labelpos {
                     LabelPos::Left => {
                         label.x = label.x.map(|x| x - label.width / 2.0 - label.label_offset);
@@ -632,45 +630,36 @@ fn position_self_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
             None => continue,
         };
 
-        let node_x = orig_node.x.unwrap_or(0.0);
-        let node_y = orig_node.y.unwrap_or(0.0);
-        let node_hw = orig_node.width / 2.0;
-        let se_x = se_node.x.unwrap_or(0.0);
-        let se_y = se_node.y.unwrap_or(0.0);
+        // Match dagre.js: x = right edge of original node, dx = distance to
+        // self-edge dummy, dy = half height of original node.
+        let x = orig_node.x.unwrap_or(0.0) + orig_node.width / 2.0;
+        let y = orig_node.y.unwrap_or(0.0);
+        let dx = se_node.x.unwrap_or(0.0) - x;
+        let dy = orig_node.height / 2.0;
 
-        // Create curved self-edge path
-        let points = vec![
-            Point::new(se_x - node_hw, se_y - se_label.height / 2.0),
-            Point::new(se_x - node_hw, se_y + se_label.height / 2.0),
-            Point::new(node_x - node_hw, node_y),
-        ];
+        // Restore the self-edge with the stored label
+        g.set_edge(
+            edge_desc.v.clone(),
+            edge_desc.w.clone(),
+            Some(se_label.clone()),
+            edge_desc.name.as_deref(),
+        );
 
-        // Set on the edge label
-        if let Some(label) = g.edge_mut(&edge_desc.v, &edge_desc.w, edge_desc.name.as_deref()) {
-            label.points = points;
-            label.x = Some(se_x - node_hw);
-            label.y = Some(se_y);
-        }
-
-        // Also restore the edge if it doesn't exist yet
-        if !g.has_edge(&edge_desc.v, &edge_desc.w, edge_desc.name.as_deref()) {
-            let mut label = se_label;
-            label.points = vec![
-                Point::new(se_x - node_hw, se_y - label.height / 2.0),
-                Point::new(se_x - node_hw, se_y + label.height / 2.0),
-                Point::new(node_x - node_hw, node_y),
-            ];
-            label.x = Some(se_x - node_hw);
-            label.y = Some(se_y);
-            g.set_edge(
-                edge_desc.v.clone(),
-                edge_desc.w.clone(),
-                Some(label),
-                edge_desc.name.as_deref(),
-            );
-        }
-
+        // Remove the self-edge dummy node
         g.remove_node(&v);
+
+        // Set points and label position on the edge
+        if let Some(label) = g.edge_mut(&edge_desc.v, &edge_desc.w, edge_desc.name.as_deref()) {
+            label.points = vec![
+                Point::new(x + 2.0 * dx / 3.0, y - dy),
+                Point::new(x + 5.0 * dx / 6.0, y - dy),
+                Point::new(x + dx, y),
+                Point::new(x + 5.0 * dx / 6.0, y + dy),
+                Point::new(x + 2.0 * dx / 3.0, y + dy),
+            ];
+            label.x = se_node.x;
+            label.y = se_node.y;
+        }
     }
 }
 

@@ -12,12 +12,10 @@ use super::util::{add_border_node, add_dummy_node};
 
 const GRAPH_NODE: &str = "\x00";
 
-/// Run nesting graph transformation for compound graphs.
+/// Run nesting graph transformation.
+/// dagre.js calls this for ALL graphs (not just compound) to ensure the graph
+/// is connected and nodeRankFactor is set.
 pub(crate) fn run(g: &mut Graph<NodeLabel, EdgeLabel>) -> Option<String> {
-    if !g.is_compound() {
-        return None;
-    }
-
     let root = add_dummy_node(g, "root", NodeLabel::default(), "_root");
     let depths = tree_depths(g);
     let height = depths.values().copied().max().unwrap_or(1) - 1;
@@ -37,6 +35,12 @@ pub(crate) fn run(g: &mut Graph<NodeLabel, EdgeLabel>) -> Option<String> {
         .filter_map(|e| g.edge(&e.v, &e.w, e.name.as_deref()).map(|l| l.weight))
         .sum::<i32>()
         + 1;
+
+    // Set nestingRoot and nodeRankFactor on graph label
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.nesting_root = Some(root.clone());
+        gl.node_rank_factor = Some(node_sep as f64);
+    }
 
     // Process children of root
     let top_children: Vec<String> = g.children(None);
