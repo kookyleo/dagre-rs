@@ -753,3 +753,1036 @@ fn node_width(g: &Graph<NodeLabel, EdgeLabel>, v: &str) -> f64 {
 fn graph_label(g: &Graph<NodeLabel, EdgeLabel>) -> Option<&GraphLabel> {
     g.graph_label::<GraphLabel>()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::Graph;
+    use crate::layout::types::{EdgeLabel, GraphLabel, LabelPos, NodeLabel};
+    use crate::layout::util::build_layer_matrix;
+    use std::collections::HashMap;
+
+    fn new_graph() -> Graph<NodeLabel, EdgeLabel> {
+        let mut g = Graph::new();
+        g.set_graph_label(GraphLabel::default());
+        g
+    }
+
+    fn node(rank: i32, order: usize) -> NodeLabel {
+        NodeLabel {
+            rank: Some(rank),
+            order: Some(order),
+            ..Default::default()
+        }
+    }
+
+    fn node_w(rank: i32, order: usize, width: f64) -> NodeLabel {
+        NodeLabel {
+            rank: Some(rank),
+            order: Some(order),
+            width,
+            ..Default::default()
+        }
+    }
+
+    fn node_wd(rank: i32, order: usize, width: f64, dummy: &str) -> NodeLabel {
+        NodeLabel {
+            rank: Some(rank),
+            order: Some(order),
+            width,
+            dummy: Some(dummy.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn node_wdl(rank: i32, order: usize, width: f64, dummy: &str, labelpos: LabelPos) -> NodeLabel {
+        NodeLabel {
+            rank: Some(rank),
+            order: Some(order),
+            width,
+            dummy: Some(dummy.to_string()),
+            labelpos,
+            ..Default::default()
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // findType1Conflicts
+    // -----------------------------------------------------------------------
+
+    fn setup_type1_graph() -> Graph<NodeLabel, EdgeLabel> {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(0, 1)));
+        g.set_node("c".to_string(), Some(node(1, 0)));
+        g.set_node("d".to_string(), Some(node(1, 1)));
+        // Set up crossing
+        g.set_edge("a", "d", None, None);
+        g.set_edge("b", "c", None, None);
+        g
+    }
+
+    #[test]
+    fn type1_does_not_mark_edges_that_have_no_conflict() {
+        let mut g = setup_type1_graph();
+        g.remove_edge("a", "d", None);
+        g.remove_edge("b", "c", None);
+        g.set_edge("a", "c", None, None);
+        g.set_edge("b", "d", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "c"));
+        assert!(!has_conflict(&conflicts, "b", "d"));
+    }
+
+    #[test]
+    fn type1_does_not_mark_type0_conflicts_no_dummies() {
+        let g = setup_type1_graph();
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_not_mark_type0_conflicts_a_is_dummy() {
+        let mut g = setup_type1_graph();
+        g.node_mut("a").unwrap().dummy = Some("true".to_string());
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_not_mark_type0_conflicts_b_is_dummy() {
+        let mut g = setup_type1_graph();
+        g.node_mut("b").unwrap().dummy = Some("true".to_string());
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_not_mark_type0_conflicts_c_is_dummy() {
+        let mut g = setup_type1_graph();
+        g.node_mut("c").unwrap().dummy = Some("true".to_string());
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_not_mark_type0_conflicts_d_is_dummy() {
+        let mut g = setup_type1_graph();
+        g.node_mut("d").unwrap().dummy = Some("true".to_string());
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_mark_conflict_a_is_non_dummy() {
+        // a is non-dummy, b,c,d are dummies
+        let mut g = setup_type1_graph();
+        for v in &["b", "c", "d"] {
+            g.node_mut(v).unwrap().dummy = Some("true".to_string());
+        }
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        // v=a or v=d => (a,d) is marked, (b,c) is not
+        assert!(has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_mark_conflict_b_is_non_dummy() {
+        let mut g = setup_type1_graph();
+        for v in &["a", "c", "d"] {
+            g.node_mut(v).unwrap().dummy = Some("true".to_string());
+        }
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        // v=b or v=c => (b,c) is marked, (a,d) is not
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_mark_conflict_c_is_non_dummy() {
+        let mut g = setup_type1_graph();
+        for v in &["a", "b", "d"] {
+            g.node_mut(v).unwrap().dummy = Some("true".to_string());
+        }
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        // v=c => (b,c) is marked, (a,d) is not
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_mark_conflict_d_is_non_dummy() {
+        let mut g = setup_type1_graph();
+        for v in &["a", "b", "c"] {
+            g.node_mut(v).unwrap().dummy = Some("true".to_string());
+        }
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        // v=d => (a,d) is marked, (b,c) is not
+        assert!(has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type1_does_not_mark_type2_conflicts_all_dummies() {
+        let mut g = setup_type1_graph();
+        for v in &["a", "b", "c", "d"] {
+            g.node_mut(v).unwrap().dummy = Some("true".to_string());
+        }
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type1_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    // -----------------------------------------------------------------------
+    // findType2Conflicts
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn type2_marks_conflicts_favoring_border_segments_1() {
+        let mut g = setup_type1_graph();
+        // a,d are normal dummies; b,c are border dummies
+        g.node_mut("a").unwrap().dummy = Some("true".to_string());
+        g.node_mut("d").unwrap().dummy = Some("true".to_string());
+        g.node_mut("b").unwrap().dummy = Some("border".to_string());
+        g.node_mut("c").unwrap().dummy = Some("border".to_string());
+
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type2_conflicts(&g, &layering);
+        assert!(has_conflict(&conflicts, "a", "d"));
+        assert!(!has_conflict(&conflicts, "b", "c"));
+    }
+
+    #[test]
+    fn type2_marks_conflicts_favoring_border_segments_2() {
+        let mut g = setup_type1_graph();
+        // b,c are normal dummies; a,d are border dummies
+        g.node_mut("b").unwrap().dummy = Some("true".to_string());
+        g.node_mut("c").unwrap().dummy = Some("true".to_string());
+        g.node_mut("a").unwrap().dummy = Some("border".to_string());
+        g.node_mut("d").unwrap().dummy = Some("border".to_string());
+
+        let layering = build_layer_matrix(&g);
+        let conflicts = find_type2_conflicts(&g, &layering);
+        assert!(!has_conflict(&conflicts, "a", "d"));
+        assert!(has_conflict(&conflicts, "b", "c"));
+    }
+
+    // -----------------------------------------------------------------------
+    // hasConflict / addConflict
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn has_conflict_regardless_of_edge_orientation() {
+        let mut conflicts: Conflicts = HashMap::new();
+        add_conflict(&mut conflicts, "b", "a");
+        assert!(has_conflict(&conflicts, "a", "b"));
+        assert!(has_conflict(&conflicts, "b", "a"));
+    }
+
+    #[test]
+    fn has_conflict_works_for_multiple_conflicts_with_same_node() {
+        let mut conflicts: Conflicts = HashMap::new();
+        add_conflict(&mut conflicts, "a", "b");
+        add_conflict(&mut conflicts, "a", "c");
+        assert!(has_conflict(&conflicts, "a", "b"));
+        assert!(has_conflict(&conflicts, "a", "c"));
+    }
+
+    // -----------------------------------------------------------------------
+    // verticalAlignment
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn align_with_itself_if_no_adjacencies() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(1, 0)));
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "b");
+        assert_eq!(result.align.get("a").unwrap(), "a");
+        assert_eq!(result.align.get("b").unwrap(), "b");
+    }
+
+    #[test]
+    fn align_with_sole_adjacency() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(1, 0)));
+        g.set_edge("a", "b", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "a");
+        assert_eq!(result.align.get("a").unwrap(), "b");
+        assert_eq!(result.align.get("b").unwrap(), "a");
+    }
+
+    #[test]
+    fn align_with_left_median_when_possible() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(0, 1)));
+        g.set_node("c".to_string(), Some(node(1, 0)));
+        g.set_edge("a", "c", None, None);
+        g.set_edge("b", "c", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "b");
+        assert_eq!(result.root.get("c").unwrap(), "a");
+        assert_eq!(result.align.get("a").unwrap(), "c");
+        assert_eq!(result.align.get("b").unwrap(), "b");
+        assert_eq!(result.align.get("c").unwrap(), "a");
+    }
+
+    #[test]
+    fn align_correctly_regardless_of_node_name_insertion_order() {
+        let mut g = new_graph();
+        // Insert in non-alphabetical order
+        g.set_node("b".to_string(), Some(node(0, 1)));
+        g.set_node("c".to_string(), Some(node(1, 0)));
+        g.set_node("z".to_string(), Some(node(0, 0)));
+        g.set_edge("z", "c", None, None);
+        g.set_edge("b", "c", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("z").unwrap(), "z");
+        assert_eq!(result.root.get("b").unwrap(), "b");
+        assert_eq!(result.root.get("c").unwrap(), "z");
+        assert_eq!(result.align.get("z").unwrap(), "c");
+        assert_eq!(result.align.get("b").unwrap(), "b");
+        assert_eq!(result.align.get("c").unwrap(), "z");
+    }
+
+    #[test]
+    fn align_with_right_median_when_left_is_unavailable() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(0, 1)));
+        g.set_node("c".to_string(), Some(node(1, 0)));
+        g.set_edge("a", "c", None, None);
+        g.set_edge("b", "c", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let mut conflicts: Conflicts = HashMap::new();
+        add_conflict(&mut conflicts, "a", "c");
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "b");
+        assert_eq!(result.root.get("c").unwrap(), "b");
+        assert_eq!(result.align.get("a").unwrap(), "a");
+        assert_eq!(result.align.get("b").unwrap(), "c");
+        assert_eq!(result.align.get("c").unwrap(), "b");
+    }
+
+    #[test]
+    fn align_with_neither_median_if_both_unavailable() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(0, 1)));
+        g.set_node("c".to_string(), Some(node(1, 0)));
+        g.set_node("d".to_string(), Some(node(1, 1)));
+        g.set_edge("a", "d", None, None);
+        g.set_edge("b", "c", None, None);
+        g.set_edge("b", "d", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "b");
+        assert_eq!(result.root.get("c").unwrap(), "b");
+        assert_eq!(result.root.get("d").unwrap(), "d");
+        assert_eq!(result.align.get("a").unwrap(), "a");
+        assert_eq!(result.align.get("b").unwrap(), "c");
+        assert_eq!(result.align.get("c").unwrap(), "b");
+        assert_eq!(result.align.get("d").unwrap(), "d");
+    }
+
+    #[test]
+    fn align_single_median_for_odd_adjacencies() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(0, 1)));
+        g.set_node("c".to_string(), Some(node(0, 2)));
+        g.set_node("d".to_string(), Some(node(1, 0)));
+        g.set_edge("a", "d", None, None);
+        g.set_edge("b", "d", None, None);
+        g.set_edge("c", "d", None, None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "b");
+        assert_eq!(result.root.get("c").unwrap(), "c");
+        assert_eq!(result.root.get("d").unwrap(), "b");
+        assert_eq!(result.align.get("a").unwrap(), "a");
+        assert_eq!(result.align.get("b").unwrap(), "d");
+        assert_eq!(result.align.get("c").unwrap(), "c");
+        assert_eq!(result.align.get("d").unwrap(), "b");
+    }
+
+    #[test]
+    fn align_blocks_across_multiple_layers() {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        g.set_node("b".to_string(), Some(node(1, 0)));
+        g.set_node("c".to_string(), Some(node(1, 1)));
+        g.set_node("d".to_string(), Some(node(2, 0)));
+        g.set_path(&["a", "b", "d"], None);
+        g.set_path(&["a", "c", "d"], None);
+
+        let layering = build_layer_matrix(&g);
+        let conflicts: Conflicts = HashMap::new();
+
+        let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
+            g.predecessors(v).unwrap_or_default()
+        });
+        assert_eq!(result.root.get("a").unwrap(), "a");
+        assert_eq!(result.root.get("b").unwrap(), "a");
+        assert_eq!(result.root.get("c").unwrap(), "c");
+        assert_eq!(result.root.get("d").unwrap(), "a");
+        assert_eq!(result.align.get("a").unwrap(), "b");
+        assert_eq!(result.align.get("b").unwrap(), "d");
+        assert_eq!(result.align.get("c").unwrap(), "c");
+        assert_eq!(result.align.get("d").unwrap(), "a");
+    }
+
+    // -----------------------------------------------------------------------
+    // horizontalCompaction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn hc_single_node_at_origin() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node(0, 0)));
+        let root = HashMap::from([("a".to_string(), "a".to_string())]);
+        let align = HashMap::from([("a".to_string(), "a".to_string())]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+    }
+
+    #[test]
+    fn hc_separates_adjacent_nodes_by_nodesep() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 100.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 200.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], 100.0 / 2.0 + 100.0 + 200.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_separates_adjacent_edges_by_edgesep() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().edgesep = 20.0;
+        g.set_node("a".to_string(), Some(node_wd(0, 0, 100.0, "true")));
+        g.set_node("b".to_string(), Some(node_wd(0, 1, 200.0, "true")));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], 100.0 / 2.0 + 20.0 + 200.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_aligns_centers_of_nodes_in_same_block() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
+        g.set_node("b".to_string(), Some(node_w(1, 0, 200.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "a".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "b".to_string()),
+            ("b".to_string(), "a".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], 0.0);
+    }
+
+    #[test]
+    fn hc_separates_blocks_with_appropriate_separation() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 75.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
+        g.set_node("b".to_string(), Some(node_w(1, 1, 200.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 50.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "a".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "b".to_string()),
+            ("b".to_string(), "a".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 50.0 / 2.0 + 75.0 + 200.0 / 2.0);
+        assert_eq!(xs["b"], 50.0 / 2.0 + 75.0 + 200.0 / 2.0);
+        assert_eq!(xs["c"], 0.0);
+    }
+
+    #[test]
+    fn hc_separates_classes_with_appropriate_separation() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 75.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 200.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 50.0)));
+        g.set_node("d".to_string(), Some(node_w(1, 1, 80.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+            ("d".to_string(), "b".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "d".to_string()),
+            ("c".to_string(), "c".to_string()),
+            ("d".to_string(), "b".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], 100.0 / 2.0 + 75.0 + 200.0 / 2.0);
+        assert_eq!(
+            xs["c"],
+            100.0 / 2.0 + 75.0 + 200.0 / 2.0 - 80.0 / 2.0 - 75.0 - 50.0 / 2.0
+        );
+        assert_eq!(xs["d"], 100.0 / 2.0 + 75.0 + 200.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_shifts_classes_by_max_sep_from_adjacent_block_1() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 75.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 50.0)));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 150.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 60.0)));
+        g.set_node("d".to_string(), Some(node_w(1, 1, 70.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "a".to_string()),
+            ("d".to_string(), "b".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "c".to_string()),
+            ("b".to_string(), "d".to_string()),
+            ("c".to_string(), "a".to_string()),
+            ("d".to_string(), "b".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], 50.0 / 2.0 + 75.0 + 150.0 / 2.0);
+        assert_eq!(xs["c"], 0.0);
+        assert_eq!(xs["d"], 50.0 / 2.0 + 75.0 + 150.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_shifts_classes_by_max_sep_from_adjacent_block_2() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 75.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 50.0)));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 70.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 60.0)));
+        g.set_node("d".to_string(), Some(node_w(1, 1, 150.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "a".to_string()),
+            ("d".to_string(), "b".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "c".to_string()),
+            ("b".to_string(), "d".to_string()),
+            ("c".to_string(), "a".to_string()),
+            ("d".to_string(), "b".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], 60.0 / 2.0 + 75.0 + 150.0 / 2.0);
+        assert_eq!(xs["c"], 0.0);
+        assert_eq!(xs["d"], 60.0 / 2.0 + 75.0 + 150.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_cascades_class_shift() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 75.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 50.0)));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 50.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 50.0)));
+        g.set_node("d".to_string(), Some(node_w(1, 1, 50.0)));
+        g.set_node("e".to_string(), Some(node_w(1, 2, 50.0)));
+        g.set_node("f".to_string(), Some(node_w(2, 0, 50.0)));
+        g.set_node("g".to_string(), Some(node_w(2, 1, 50.0)));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+            ("d".to_string(), "d".to_string()),
+            ("e".to_string(), "b".to_string()),
+            ("f".to_string(), "f".to_string()),
+            ("g".to_string(), "d".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "e".to_string()),
+            ("c".to_string(), "c".to_string()),
+            ("d".to_string(), "g".to_string()),
+            ("e".to_string(), "b".to_string()),
+            ("f".to_string(), "f".to_string()),
+            ("g".to_string(), "d".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        // Use f as reference, everything is relative
+        assert_eq!(xs["a"], xs["b"] - 50.0 / 2.0 - 75.0 - 50.0 / 2.0);
+        assert_eq!(xs["b"], xs["e"]);
+        assert_eq!(xs["c"], xs["f"]);
+        assert_eq!(xs["d"], xs["c"] + 50.0 / 2.0 + 75.0 + 50.0 / 2.0);
+        assert_eq!(xs["e"], xs["d"] + 50.0 / 2.0 + 75.0 + 50.0 / 2.0);
+        assert_eq!(xs["g"], xs["f"] + 50.0 / 2.0 + 75.0 + 50.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_handles_labelpos_l() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().edgesep = 50.0;
+        g.set_node("a".to_string(), Some(node_wd(0, 0, 100.0, "edge")));
+        g.set_node(
+            "b".to_string(),
+            Some(node_wdl(0, 1, 200.0, "edge-label", LabelPos::Left)),
+        );
+        g.set_node("c".to_string(), Some(node_wd(0, 2, 300.0, "edge")));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], xs["a"] + 100.0 / 2.0 + 50.0 + 200.0);
+        assert_eq!(xs["c"], xs["b"] + 0.0 + 50.0 + 300.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_handles_labelpos_c() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().edgesep = 50.0;
+        g.set_node("a".to_string(), Some(node_wd(0, 0, 100.0, "edge")));
+        g.set_node(
+            "b".to_string(),
+            Some(node_wdl(0, 1, 200.0, "edge-label", LabelPos::Center)),
+        );
+        g.set_node("c".to_string(), Some(node_wd(0, 2, 300.0, "edge")));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], xs["a"] + 100.0 / 2.0 + 50.0 + 200.0 / 2.0);
+        assert_eq!(xs["c"], xs["b"] + 200.0 / 2.0 + 50.0 + 300.0 / 2.0);
+    }
+
+    #[test]
+    fn hc_handles_labelpos_r() {
+        let mut g = new_graph();
+        g.graph_label_mut::<GraphLabel>().unwrap().edgesep = 50.0;
+        g.set_node("a".to_string(), Some(node_wd(0, 0, 100.0, "edge")));
+        g.set_node(
+            "b".to_string(),
+            Some(node_wdl(0, 1, 200.0, "edge-label", LabelPos::Right)),
+        );
+        g.set_node("c".to_string(), Some(node_wd(0, 2, 300.0, "edge")));
+        let root = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let align = HashMap::from([
+            ("a".to_string(), "a".to_string()),
+            ("b".to_string(), "b".to_string()),
+            ("c".to_string(), "c".to_string()),
+        ]);
+        let layering = build_layer_matrix(&g);
+        let xs = horizontal_compaction(&g, &layering, &root, &align, false);
+        assert_eq!(xs["a"], 0.0);
+        assert_eq!(xs["b"], xs["a"] + 100.0 / 2.0 + 50.0 + 0.0);
+        assert_eq!(xs["c"], xs["b"] + 200.0 + 50.0 + 300.0 / 2.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // alignCoordinates
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn align_coordinates_single_node() {
+        let mut xss: XssMap = HashMap::new();
+        xss.insert("ul".to_string(), HashMap::from([("a".to_string(), 50.0)]));
+        xss.insert("ur".to_string(), HashMap::from([("a".to_string(), 100.0)]));
+        xss.insert("dl".to_string(), HashMap::from([("a".to_string(), 50.0)]));
+        xss.insert("dr".to_string(), HashMap::from([("a".to_string(), 200.0)]));
+
+        let align_to = xss["ul"].clone();
+        align_coordinates(&mut xss, "ul", &align_to);
+
+        assert_eq!(xss["ul"]["a"], 50.0);
+        assert_eq!(xss["ur"]["a"], 50.0);
+        assert_eq!(xss["dl"]["a"], 50.0);
+        assert_eq!(xss["dr"]["a"], 50.0);
+    }
+
+    #[test]
+    fn align_coordinates_multiple_nodes() {
+        let mut xss: XssMap = HashMap::new();
+        xss.insert(
+            "ul".to_string(),
+            HashMap::from([("a".to_string(), 50.0), ("b".to_string(), 1000.0)]),
+        );
+        xss.insert(
+            "ur".to_string(),
+            HashMap::from([("a".to_string(), 100.0), ("b".to_string(), 900.0)]),
+        );
+        xss.insert(
+            "dl".to_string(),
+            HashMap::from([("a".to_string(), 150.0), ("b".to_string(), 800.0)]),
+        );
+        xss.insert(
+            "dr".to_string(),
+            HashMap::from([("a".to_string(), 200.0), ("b".to_string(), 700.0)]),
+        );
+
+        let align_to = xss["ul"].clone();
+        align_coordinates(&mut xss, "ul", &align_to);
+
+        assert_eq!(xss["ul"]["a"], 50.0);
+        assert_eq!(xss["ul"]["b"], 1000.0);
+        assert_eq!(xss["ur"]["a"], 200.0);
+        assert_eq!(xss["ur"]["b"], 1000.0);
+        assert_eq!(xss["dl"]["a"], 50.0);
+        assert_eq!(xss["dl"]["b"], 700.0);
+        assert_eq!(xss["dr"]["a"], 500.0);
+        assert_eq!(xss["dr"]["b"], 1000.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // findSmallestWidthAlignment
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn smallest_width_alignment_finds_correct() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
+        g.set_node("b".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
+
+        let mut xss: XssMap = HashMap::new();
+        xss.insert(
+            "ul".to_string(),
+            HashMap::from([("a".to_string(), 0.0), ("b".to_string(), 1000.0)]),
+        );
+        xss.insert(
+            "ur".to_string(),
+            HashMap::from([("a".to_string(), -5.0), ("b".to_string(), 1000.0)]),
+        );
+        xss.insert(
+            "dl".to_string(),
+            HashMap::from([("a".to_string(), 5.0), ("b".to_string(), 2000.0)]),
+        );
+        xss.insert(
+            "dr".to_string(),
+            HashMap::from([("a".to_string(), 0.0), ("b".to_string(), 200.0)]),
+        );
+
+        let (key, _xs) = find_smallest_width_alignment(&g, &xss);
+        assert_eq!(key, "dr");
+    }
+
+    #[test]
+    fn smallest_width_takes_node_width_into_account() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
+        g.set_node("b".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
+        g.set_node("c".to_string(), Some(NodeLabel { width: 200.0, ..Default::default() }));
+
+        let mut xss: XssMap = HashMap::new();
+        xss.insert(
+            "ul".to_string(),
+            HashMap::from([
+                ("a".to_string(), 0.0),
+                ("b".to_string(), 100.0),
+                ("c".to_string(), 75.0),
+            ]),
+        );
+        xss.insert(
+            "ur".to_string(),
+            HashMap::from([
+                ("a".to_string(), 0.0),
+                ("b".to_string(), 100.0),
+                ("c".to_string(), 80.0),
+            ]),
+        );
+        xss.insert(
+            "dl".to_string(),
+            HashMap::from([
+                ("a".to_string(), 0.0),
+                ("b".to_string(), 100.0),
+                ("c".to_string(), 85.0),
+            ]),
+        );
+        xss.insert(
+            "dr".to_string(),
+            HashMap::from([
+                ("a".to_string(), 0.0),
+                ("b".to_string(), 100.0),
+                ("c".to_string(), 90.0),
+            ]),
+        );
+
+        let (key, _xs) = find_smallest_width_alignment(&g, &xss);
+        assert_eq!(key, "ul");
+    }
+
+    // -----------------------------------------------------------------------
+    // balance
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn balance_single_node_shared_median() {
+        let mut xss: XssMap = HashMap::new();
+        xss.insert("ul".to_string(), HashMap::from([("a".to_string(), 0.0)]));
+        xss.insert("ur".to_string(), HashMap::from([("a".to_string(), 100.0)]));
+        xss.insert("dl".to_string(), HashMap::from([("a".to_string(), 100.0)]));
+        xss.insert("dr".to_string(), HashMap::from([("a".to_string(), 200.0)]));
+
+        let result = balance(&xss, None);
+        assert_eq!(result["a"], 100.0);
+    }
+
+    #[test]
+    fn balance_single_node_average_of_different_medians() {
+        let mut xss: XssMap = HashMap::new();
+        xss.insert("ul".to_string(), HashMap::from([("a".to_string(), 0.0)]));
+        xss.insert("ur".to_string(), HashMap::from([("a".to_string(), 75.0)]));
+        xss.insert("dl".to_string(), HashMap::from([("a".to_string(), 125.0)]));
+        xss.insert("dr".to_string(), HashMap::from([("a".to_string(), 200.0)]));
+
+        let result = balance(&xss, None);
+        assert_eq!(result["a"], 100.0);
+    }
+
+    #[test]
+    fn balance_multiple_nodes() {
+        let mut xss: XssMap = HashMap::new();
+        xss.insert(
+            "ul".to_string(),
+            HashMap::from([("a".to_string(), 0.0), ("b".to_string(), 50.0)]),
+        );
+        xss.insert(
+            "ur".to_string(),
+            HashMap::from([("a".to_string(), 75.0), ("b".to_string(), 0.0)]),
+        );
+        xss.insert(
+            "dl".to_string(),
+            HashMap::from([("a".to_string(), 125.0), ("b".to_string(), 60.0)]),
+        );
+        xss.insert(
+            "dr".to_string(),
+            HashMap::from([("a".to_string(), 200.0), ("b".to_string(), 75.0)]),
+        );
+
+        let result = balance(&xss, None);
+        assert_eq!(result["a"], 100.0);
+        assert_eq!(result["b"], 55.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // positionX (integration)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn px_single_node_at_origin() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
+        let result = position_x(&g);
+        assert_eq!(result["a"], 0.0);
+    }
+
+    #[test]
+    fn px_single_node_block_at_origin() {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
+        g.set_node("b".to_string(), Some(node_w(1, 0, 100.0)));
+        g.set_edge("a", "b", None, None);
+        let result = position_x(&g);
+        assert_eq!(result["a"], 0.0);
+        assert_eq!(result["b"], 0.0);
+    }
+
+    #[test]
+    fn px_single_node_block_at_origin_different_sizes() {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.set_node("a".to_string(), Some(node_w(0, 0, 40.0)));
+        g.set_node("b".to_string(), Some(node_w(1, 0, 500.0)));
+        g.set_node("c".to_string(), Some(node_w(2, 0, 20.0)));
+        g.set_path(&["a", "b", "c"], None);
+        let result = position_x(&g);
+        assert_eq!(result["a"], 0.0);
+        assert_eq!(result["b"], 0.0);
+        assert_eq!(result["c"], 0.0);
+    }
+
+    #[test]
+    fn px_centers_node_if_predecessor_of_two_same_sized() {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 10.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 20.0)));
+        g.set_node("b".to_string(), Some(node_w(1, 0, 50.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 1, 50.0)));
+        g.set_edge("a", "b", None, None);
+        g.set_edge("a", "c", None, None);
+
+        let pos = position_x(&g);
+        let a = pos["a"];
+        assert_eq!(pos["b"], a - (25.0 + 5.0));
+        assert_eq!(pos["c"], a + (25.0 + 5.0));
+    }
+
+    #[test]
+    fn px_shifts_blocks_on_both_sides_of_aligned_block() {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 10.0;
+        g.set_node("a".to_string(), Some(node_w(0, 0, 50.0)));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 60.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 70.0)));
+        g.set_node("d".to_string(), Some(node_w(1, 1, 80.0)));
+        g.set_edge("b", "c", None, None);
+
+        let pos = position_x(&g);
+        let b = pos["b"];
+        let c = b;
+        assert_eq!(pos["a"], b - 60.0 / 2.0 - 10.0 - 50.0 / 2.0);
+        assert_eq!(pos["b"], b);
+        assert_eq!(pos["c"], c);
+        assert_eq!(pos["d"], c + 70.0 / 2.0 + 10.0 + 80.0 / 2.0);
+    }
+
+    #[test]
+    fn px_aligns_inner_segments() {
+        let mut g = new_graph();
+        g.set_default_edge_label(|_| EdgeLabel::default());
+        g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 10.0;
+        g.graph_label_mut::<GraphLabel>().unwrap().edgesep = 10.0;
+        g.set_node("a".to_string(), Some(node_wd(0, 0, 50.0, "true")));
+        g.set_node("b".to_string(), Some(node_w(0, 1, 60.0)));
+        g.set_node("c".to_string(), Some(node_w(1, 0, 70.0)));
+        g.set_node("d".to_string(), Some(node_wd(1, 1, 80.0, "true")));
+        g.set_edge("b", "c", None, None);
+        g.set_edge("a", "d", None, None);
+
+        let pos = position_x(&g);
+        let a = pos["a"];
+        let d = a;
+        assert_eq!(pos["a"], a);
+        assert_eq!(pos["b"], a + 50.0 / 2.0 + 10.0 + 60.0 / 2.0);
+        assert_eq!(pos["c"], d - 70.0 / 2.0 - 10.0 - 80.0 / 2.0);
+        assert_eq!(pos["d"], d);
+    }
+}

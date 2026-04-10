@@ -441,3 +441,900 @@ fn postorder_undirected(
 
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{Edge, Graph, GraphOptions};
+    use crate::layout::rank::feasible_tree::{TreeEdgeLabel, TreeNodeLabel};
+    use crate::layout::rank::util::longest_path;
+    use crate::layout::types::{EdgeLabel, NodeLabel};
+    use crate::layout::util::normalize_ranks;
+
+    /// Helper: run network simplex + normalize ranks
+    fn ns(g: &mut Graph<NodeLabel, EdgeLabel>) {
+        network_simplex(g);
+        normalize_ranks(g);
+    }
+
+    /// Helper: normalize an edge so that v < w
+    fn undirected_edge(e: &Edge) -> (String, String) {
+        if e.v < e.w {
+            (e.v.clone(), e.w.clone())
+        } else {
+            (e.w.clone(), e.v.clone())
+        }
+    }
+
+    /// Create a directed multigraph with default node/edge labels
+    fn new_graph() -> Graph<NodeLabel, EdgeLabel> {
+        let mut g = Graph::with_options(GraphOptions {
+            directed: true,
+            multigraph: true,
+            compound: false,
+        });
+        g.set_default_node_label(|_| NodeLabel::default());
+        g.set_default_edge_label(|_| EdgeLabel {
+            minlen: 1,
+            weight: 1,
+            ..Default::default()
+        });
+        g
+    }
+
+    /// Create an undirected tree with default node/edge labels
+    fn new_tree() -> Graph<TreeNodeLabel, TreeEdgeLabel> {
+        let mut t = Graph::with_options(GraphOptions {
+            directed: false,
+            multigraph: false,
+            compound: false,
+        });
+        t.set_default_node_label(|_| TreeNodeLabel::default());
+        t.set_default_edge_label(|_| TreeEdgeLabel::default());
+        t
+    }
+
+    /// Build the Gansner example graph (directed)
+    fn gansner_graph() -> Graph<NodeLabel, EdgeLabel> {
+        let mut g = Graph::new();
+        g.set_default_node_label(|_| NodeLabel::default());
+        g.set_default_edge_label(|_| EdgeLabel {
+            minlen: 1,
+            weight: 1,
+            ..Default::default()
+        });
+        g.set_path(&["a", "b", "c", "d", "h"], None);
+        g.set_path(&["a", "e", "g", "h"], None);
+        g.set_path(&["a", "f", "g"], None);
+        g
+    }
+
+    /// Build the Gansner example tree (undirected)
+    fn gansner_tree() -> Graph<TreeNodeLabel, TreeEdgeLabel> {
+        let mut t = new_tree();
+        t.set_path(&["a", "b", "c", "d", "h", "g", "e"], None);
+        t.set_edge("g", "f", None, None);
+        t
+    }
+
+    // -----------------------------------------------------------------------
+    // Main ranking tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn can_assign_rank_to_single_node() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), None);
+        ns(&mut g);
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+    }
+
+    #[test]
+    fn can_assign_rank_to_2_node_connected_graph() {
+        let mut g = new_graph();
+        g.set_edge("a", "b", None, None);
+        ns(&mut g);
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+        assert_eq!(g.node("b").unwrap().rank, Some(1));
+    }
+
+    #[test]
+    fn can_assign_ranks_for_diamond() {
+        let mut g = new_graph();
+        g.set_path(&["a", "b", "d"], None);
+        g.set_path(&["a", "c", "d"], None);
+        ns(&mut g);
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+        assert_eq!(g.node("b").unwrap().rank, Some(1));
+        assert_eq!(g.node("c").unwrap().rank, Some(1));
+        assert_eq!(g.node("d").unwrap().rank, Some(2));
+    }
+
+    #[test]
+    fn uses_minlen_attribute_on_edge() {
+        let mut g = new_graph();
+        g.set_path(&["a", "b", "d"], None);
+        g.set_edge("a", "c", None, None);
+        g.set_edge(
+            "c",
+            "d",
+            Some(EdgeLabel {
+                minlen: 2,
+                weight: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        ns(&mut g);
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+        assert_eq!(g.node("b").unwrap().rank, Some(2));
+        assert_eq!(g.node("c").unwrap().rank, Some(1));
+        assert_eq!(g.node("d").unwrap().rank, Some(3));
+    }
+
+    #[test]
+    fn can_rank_gansner_graph() {
+        let mut g = gansner_graph();
+        ns(&mut g);
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+        assert_eq!(g.node("b").unwrap().rank, Some(1));
+        assert_eq!(g.node("c").unwrap().rank, Some(2));
+        assert_eq!(g.node("d").unwrap().rank, Some(3));
+        assert_eq!(g.node("h").unwrap().rank, Some(4));
+        assert_eq!(g.node("e").unwrap().rank, Some(1));
+        assert_eq!(g.node("f").unwrap().rank, Some(1));
+        assert_eq!(g.node("g").unwrap().rank, Some(2));
+    }
+
+    #[test]
+    fn can_handle_multi_edges() {
+        let mut g = new_graph();
+        g.set_path(&["a", "b", "c", "d"], None);
+        g.set_edge(
+            "a",
+            "e",
+            Some(EdgeLabel {
+                weight: 2,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_edge("e", "d", None, None);
+        g.set_edge(
+            "b",
+            "c",
+            Some(EdgeLabel {
+                weight: 1,
+                minlen: 2,
+                ..Default::default()
+            }),
+            Some("multi"),
+        );
+        ns(&mut g);
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+        assert_eq!(g.node("b").unwrap().rank, Some(1));
+        // b -> c has minlen = 1 and minlen = 2, so it should be 2 ranks apart
+        assert_eq!(g.node("c").unwrap().rank, Some(3));
+        assert_eq!(g.node("d").unwrap().rank, Some(4));
+        assert_eq!(g.node("e").unwrap().rank, Some(1));
+    }
+
+    // -----------------------------------------------------------------------
+    // leaveEdge
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn leave_edge_returns_none_if_no_negative_cutvalue() {
+        let mut tree = Graph::with_options(GraphOptions {
+            directed: false,
+            multigraph: false,
+            compound: false,
+        });
+        tree.set_edge(
+            "a",
+            "b",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(1),
+            }),
+            None,
+        );
+        tree.set_edge(
+            "b",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(1),
+            }),
+            None,
+        );
+        assert!(leave_edge(&tree).is_none());
+    }
+
+    #[test]
+    fn leave_edge_returns_edge_with_negative_cutvalue() {
+        let mut tree = Graph::with_options(GraphOptions {
+            directed: false,
+            multigraph: false,
+            compound: false,
+        });
+        tree.set_edge(
+            "a",
+            "b",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(1),
+            }),
+            None,
+        );
+        tree.set_edge(
+            "b",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(-1),
+            }),
+            None,
+        );
+        let e = leave_edge(&tree).unwrap();
+        assert_eq!(undirected_edge(&e), ("b".to_string(), "c".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // enterEdge
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn enter_edge_finds_edge_from_head_to_tail_component() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(NodeLabel { rank: Some(0), ..Default::default() }));
+        g.set_node("b".to_string(), Some(NodeLabel { rank: Some(2), ..Default::default() }));
+        g.set_node("c".to_string(), Some(NodeLabel { rank: Some(3), ..Default::default() }));
+        g.set_path(&["a", "b", "c"], None);
+        g.set_edge("a", "c", None, None);
+
+        let mut t = new_tree();
+        t.set_path(&["b", "c", "a"], None);
+        init_low_lim_values(&mut t, Some("c"));
+
+        let f = enter_edge(&t, &g, &Edge::new("b", "c"));
+        assert_eq!(undirected_edge(&f), ("a".to_string(), "b".to_string()));
+    }
+
+    #[test]
+    fn enter_edge_works_when_root_in_tail_component() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(NodeLabel { rank: Some(0), ..Default::default() }));
+        g.set_node("b".to_string(), Some(NodeLabel { rank: Some(2), ..Default::default() }));
+        g.set_node("c".to_string(), Some(NodeLabel { rank: Some(3), ..Default::default() }));
+        g.set_path(&["a", "b", "c"], None);
+        g.set_edge("a", "c", None, None);
+
+        let mut t = new_tree();
+        t.set_path(&["b", "c", "a"], None);
+        init_low_lim_values(&mut t, Some("b"));
+
+        let f = enter_edge(&t, &g, &Edge::new("b", "c"));
+        assert_eq!(undirected_edge(&f), ("a".to_string(), "b".to_string()));
+    }
+
+    #[test]
+    fn enter_edge_finds_edge_with_least_slack() {
+        let mut g = new_graph();
+        g.set_node("a".to_string(), Some(NodeLabel { rank: Some(0), ..Default::default() }));
+        g.set_node("b".to_string(), Some(NodeLabel { rank: Some(1), ..Default::default() }));
+        g.set_node("c".to_string(), Some(NodeLabel { rank: Some(3), ..Default::default() }));
+        g.set_node("d".to_string(), Some(NodeLabel { rank: Some(4), ..Default::default() }));
+        g.set_edge("a", "d", None, None);
+        g.set_path(&["a", "c", "d"], None);
+        g.set_edge("b", "c", None, None);
+
+        let mut t = new_tree();
+        t.set_path(&["c", "d", "a", "b"], None);
+        init_low_lim_values(&mut t, Some("a"));
+
+        let f = enter_edge(&t, &g, &Edge::new("c", "d"));
+        assert_eq!(undirected_edge(&f), ("b".to_string(), "c".to_string()));
+    }
+
+    #[test]
+    fn enter_edge_gansner_graph_1() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, Some("a"));
+
+        let f = enter_edge(&t, &g, &Edge::new("g", "h"));
+        let (ev, ew) = undirected_edge(&f);
+        assert_eq!(ev, "a");
+        assert!(ew == "e" || ew == "f");
+    }
+
+    #[test]
+    fn enter_edge_gansner_graph_2() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, Some("e"));
+
+        let f = enter_edge(&t, &g, &Edge::new("g", "h"));
+        let (ev, ew) = undirected_edge(&f);
+        assert_eq!(ev, "a");
+        assert!(ew == "e" || ew == "f");
+    }
+
+    #[test]
+    fn enter_edge_gansner_graph_3() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, Some("a"));
+
+        let f = enter_edge(&t, &g, &Edge::new("h", "g"));
+        let (ev, ew) = undirected_edge(&f);
+        assert_eq!(ev, "a");
+        assert!(ew == "e" || ew == "f");
+    }
+
+    #[test]
+    fn enter_edge_gansner_graph_4() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, Some("e"));
+
+        let f = enter_edge(&t, &g, &Edge::new("h", "g"));
+        let (ev, ew) = undirected_edge(&f);
+        assert_eq!(ev, "a");
+        assert!(ew == "e" || ew == "f");
+    }
+
+    // -----------------------------------------------------------------------
+    // initLowLimValues
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn init_low_lim_values_assigns_low_lim_parent() {
+        let mut g = Graph::with_options(GraphOptions {
+            directed: true,
+            multigraph: false,
+            compound: false,
+        });
+        g.set_default_node_label(|_| TreeNodeLabel::default());
+        g.set_default_edge_label(|_| TreeEdgeLabel::default());
+        for n in &["a", "b", "c", "d", "e"] {
+            g.set_node(n.to_string(), None);
+        }
+        // setPath(["a","b","a","c","d","c","e"]) builds edges a-b, b-a, a-c, c-d, d-c, c-e
+        // In the JS test this is a directed graph with edges:
+        // a->b, b->a, a->c, c->d, d->c, c->e
+        // Effectively this creates an undirected-like structure:
+        //   a -- b, a -- c, c -- d, c -- e
+        g.set_path(&["a", "b", "a", "c", "d", "c", "e"], None);
+
+        init_low_lim_values(&mut g, Some("a"));
+
+        let a = g.node("a").unwrap();
+        let b = g.node("b").unwrap();
+        let c = g.node("c").unwrap();
+        let d = g.node("d").unwrap();
+        let e = g.node("e").unwrap();
+
+        // All lim values should be a permutation of 1..=5
+        let mut lims: Vec<i32> = vec![
+            a.lim.unwrap(),
+            b.lim.unwrap(),
+            c.lim.unwrap(),
+            d.lim.unwrap(),
+            e.lim.unwrap(),
+        ];
+        lims.sort();
+        assert_eq!(lims, vec![1, 2, 3, 4, 5]);
+
+        // Root "a" has low=1, lim=5
+        assert_eq!(a.low, Some(1));
+        assert_eq!(a.lim, Some(5));
+
+        // b.parent == "a", b.lim < a.lim
+        assert_eq!(b.parent.as_deref(), Some("a"));
+        assert!(b.lim.unwrap() < a.lim.unwrap());
+
+        // c.parent == "a", c.lim < a.lim, c.lim != b.lim
+        assert_eq!(c.parent.as_deref(), Some("a"));
+        assert!(c.lim.unwrap() < a.lim.unwrap());
+        assert_ne!(c.lim, b.lim);
+
+        // d.parent == "c", d.lim < c.lim
+        assert_eq!(d.parent.as_deref(), Some("c"));
+        assert!(d.lim.unwrap() < c.lim.unwrap());
+
+        // e.parent == "c", e.lim < c.lim, e.lim != d.lim
+        assert_eq!(e.parent.as_deref(), Some("c"));
+        assert!(e.lim.unwrap() < c.lim.unwrap());
+        assert_ne!(e.lim, d.lim);
+    }
+
+    // -----------------------------------------------------------------------
+    // exchangeEdges
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn exchange_edges_updates_cut_values_and_low_lim() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, None);
+        init_cut_values(&mut t, &g);
+
+        exchange_edges(
+            &mut t,
+            &mut g,
+            &Edge::new("g", "h"),
+            &Edge::new("a", "e"),
+        );
+
+        // Check new cut values
+        assert_eq!(
+            t.edge("a", "b", None).unwrap().cutvalue,
+            Some(2)
+        );
+        assert_eq!(
+            t.edge("b", "c", None).unwrap().cutvalue,
+            Some(2)
+        );
+        assert_eq!(
+            t.edge("c", "d", None).unwrap().cutvalue,
+            Some(2)
+        );
+        assert_eq!(
+            t.edge("d", "h", None).unwrap().cutvalue,
+            Some(2)
+        );
+        assert_eq!(
+            t.edge("a", "e", None).unwrap().cutvalue,
+            Some(1)
+        );
+        assert_eq!(
+            t.edge("e", "g", None).unwrap().cutvalue,
+            Some(1)
+        );
+        assert_eq!(
+            t.edge("g", "f", None).unwrap().cutvalue,
+            Some(0)
+        );
+
+        // Ensure lim numbers look right
+        let mut lims: Vec<i32> = t
+            .nodes()
+            .iter()
+            .map(|v| t.node(v).unwrap().lim.unwrap())
+            .collect();
+        lims.sort();
+        assert_eq!(lims, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn exchange_edges_updates_ranks() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, None);
+        init_cut_values(&mut t, &g);
+
+        exchange_edges(
+            &mut t,
+            &mut g,
+            &Edge::new("g", "h"),
+            &Edge::new("a", "e"),
+        );
+        normalize_ranks(&mut g);
+
+        assert_eq!(g.node("a").unwrap().rank, Some(0));
+        assert_eq!(g.node("b").unwrap().rank, Some(1));
+        assert_eq!(g.node("c").unwrap().rank, Some(2));
+        assert_eq!(g.node("d").unwrap().rank, Some(3));
+        assert_eq!(g.node("e").unwrap().rank, Some(1));
+        assert_eq!(g.node("f").unwrap().rank, Some(1));
+        assert_eq!(g.node("g").unwrap().rank, Some(2));
+        assert_eq!(g.node("h").unwrap().rank, Some(4));
+    }
+
+    // -----------------------------------------------------------------------
+    // calcCutValue
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn calc_cut_value_2_node_tree_c_to_p() {
+        let mut g = new_graph();
+        g.set_path(&["c", "p"], None);
+
+        let mut t = new_tree();
+        t.set_path(&["p", "c"], None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 1);
+    }
+
+    #[test]
+    fn calc_cut_value_2_node_tree_p_to_c() {
+        let mut g = new_graph();
+        g.set_path(&["p", "c"], None);
+
+        let mut t = new_tree();
+        t.set_path(&["p", "c"], None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 1);
+    }
+
+    #[test]
+    fn calc_cut_value_3_node_gc_c_p() {
+        let mut g = new_graph();
+        g.set_path(&["gc", "c", "p"], None);
+
+        let mut t = new_tree();
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("p", "c", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 3);
+    }
+
+    #[test]
+    fn calc_cut_value_3_node_gc_c_rev_p() {
+        let mut g = new_graph();
+        g.set_edge("p", "c", None, None);
+        g.set_edge("gc", "c", None, None);
+
+        let mut t = new_tree();
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("p", "c", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), -1);
+    }
+
+    #[test]
+    fn calc_cut_value_3_node_rev_gc_c_p() {
+        let mut g = new_graph();
+        g.set_edge("c", "p", None, None);
+        g.set_edge("c", "gc", None, None);
+
+        let mut t = new_tree();
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("p", "c", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), -1);
+    }
+
+    #[test]
+    fn calc_cut_value_3_node_rev_gc_rev_c_p() {
+        let mut g = new_graph();
+        g.set_path(&["p", "c", "gc"], None);
+
+        let mut t = new_tree();
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("p", "c", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 3);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_gc_c_p_o_with_o_to_c() {
+        let mut g = new_graph();
+        g.set_edge(
+            "o",
+            "c",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_path(&["gc", "c", "p", "o"], None);
+
+        let mut t = new_tree();
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_path(&["c", "p", "o"], None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), -4);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_gc_c_p_o_with_c_to_o() {
+        let mut g = new_graph();
+        g.set_edge(
+            "c",
+            "o",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_path(&["gc", "c", "p", "o"], None);
+
+        let mut t = new_tree();
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_path(&["c", "p", "o"], None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 10);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_o_gc_c_p_with_o_to_c() {
+        let mut g = new_graph();
+        g.set_edge(
+            "o",
+            "c",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_path(&["o", "gc", "c", "p"], None);
+
+        let mut t = new_tree();
+        t.set_edge("o", "gc", None, None);
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("c", "p", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), -4);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_o_gc_c_p_with_c_to_o() {
+        let mut g = new_graph();
+        g.set_edge(
+            "c",
+            "o",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_path(&["o", "gc", "c", "p"], None);
+
+        let mut t = new_tree();
+        t.set_edge("o", "gc", None, None);
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("c", "p", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 10);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_gc_c_rev_p_o_with_o_to_c() {
+        let mut g = new_graph();
+        g.set_edge("gc", "c", None, None);
+        g.set_edge("p", "c", None, None);
+        g.set_edge("p", "o", None, None);
+        g.set_edge(
+            "o",
+            "c",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+
+        let mut t = new_tree();
+        t.set_edge("o", "gc", None, None);
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("c", "p", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 6);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_gc_c_rev_p_o_with_c_to_o() {
+        let mut g = new_graph();
+        g.set_edge("gc", "c", None, None);
+        g.set_edge("p", "c", None, None);
+        g.set_edge("p", "o", None, None);
+        g.set_edge(
+            "c",
+            "o",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+
+        let mut t = new_tree();
+        t.set_edge("o", "gc", None, None);
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("c", "p", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), -8);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_o_gc_c_rev_p_with_o_to_c() {
+        let mut g = new_graph();
+        g.set_edge(
+            "o",
+            "c",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_path(&["o", "gc", "c"], None);
+        g.set_edge("p", "c", None, None);
+
+        let mut t = new_tree();
+        t.set_edge("o", "gc", None, None);
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("c", "p", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), 6);
+    }
+
+    #[test]
+    fn calc_cut_value_4_node_o_gc_c_rev_p_with_c_to_o() {
+        let mut g = new_graph();
+        g.set_edge(
+            "c",
+            "o",
+            Some(EdgeLabel {
+                weight: 7,
+                minlen: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        g.set_path(&["o", "gc", "c"], None);
+        g.set_edge("p", "c", None, None);
+
+        let mut t = new_tree();
+        t.set_edge("o", "gc", None, None);
+        t.set_edge(
+            "gc",
+            "c",
+            Some(TreeEdgeLabel {
+                cutvalue: Some(3),
+            }),
+            None,
+        );
+        t.set_edge("c", "p", None, None);
+        init_low_lim_values(&mut t, Some("p"));
+
+        assert_eq!(calc_cut_value(&t, &g, "c"), -8);
+    }
+
+    // -----------------------------------------------------------------------
+    // initCutValues
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn init_cut_values_gansner_graph() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, None);
+        init_cut_values(&mut t, &g);
+
+        assert_eq!(t.edge("a", "b", None).unwrap().cutvalue, Some(3));
+        assert_eq!(t.edge("b", "c", None).unwrap().cutvalue, Some(3));
+        assert_eq!(t.edge("c", "d", None).unwrap().cutvalue, Some(3));
+        assert_eq!(t.edge("d", "h", None).unwrap().cutvalue, Some(3));
+        assert_eq!(t.edge("g", "h", None).unwrap().cutvalue, Some(-1));
+        assert_eq!(t.edge("e", "g", None).unwrap().cutvalue, Some(0));
+        assert_eq!(t.edge("f", "g", None).unwrap().cutvalue, Some(0));
+    }
+
+    #[test]
+    fn init_cut_values_updated_gansner_graph() {
+        let mut g = gansner_graph();
+        let mut t = gansner_tree();
+        t.remove_edge("g", "h", None);
+        t.set_edge("a", "e", None, None);
+        longest_path(&mut g);
+        init_low_lim_values(&mut t, None);
+        init_cut_values(&mut t, &g);
+
+        assert_eq!(t.edge("a", "b", None).unwrap().cutvalue, Some(2));
+        assert_eq!(t.edge("b", "c", None).unwrap().cutvalue, Some(2));
+        assert_eq!(t.edge("c", "d", None).unwrap().cutvalue, Some(2));
+        assert_eq!(t.edge("d", "h", None).unwrap().cutvalue, Some(2));
+        assert_eq!(t.edge("a", "e", None).unwrap().cutvalue, Some(1));
+        assert_eq!(t.edge("e", "g", None).unwrap().cutvalue, Some(1));
+        assert_eq!(t.edge("f", "g", None).unwrap().cutvalue, Some(0));
+    }
+}
