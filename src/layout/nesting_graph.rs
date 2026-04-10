@@ -74,7 +74,11 @@ fn dfs_nesting(
     let top = add_border_node(g, "_bt", None, None);
     let bottom = add_border_node(g, "_bb", None, None);
 
-    g.set_parent(v, None); // ensure v exists
+    // Ensure v has a NodeLabel (it may have been implicitly created by set_parent)
+    if g.node(v).is_none() {
+        g.set_node(v.to_string(), Some(NodeLabel::default()));
+    }
+
     g.set_parent(&top, Some(v));
     if let Some(node) = g.node_mut(v) {
         node.border_top = Some(top.clone());

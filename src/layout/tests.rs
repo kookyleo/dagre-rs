@@ -1600,8 +1600,6 @@ fn nesting_run_connects_disconnected_graph() {
 }
 
 #[test]
-// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
-#[ignore]
 fn nesting_run_adds_border_nodes_to_top_and_bottom_of_subgraph() {
     let mut g = make_compound_graph();
     g.set_graph_label(GraphLabel::default());
@@ -1639,8 +1637,6 @@ fn nesting_run_adds_border_nodes_to_top_and_bottom_of_subgraph() {
 }
 
 #[test]
-// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
-#[ignore]
 fn nesting_run_adds_edges_between_borders_of_nested_subgraphs() {
     let mut g = make_compound_graph();
     g.set_graph_label(GraphLabel::default());
@@ -1666,8 +1662,6 @@ fn nesting_run_adds_edges_between_borders_of_nested_subgraphs() {
 }
 
 #[test]
-// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
-#[ignore]
 fn nesting_run_adds_sufficient_weight_to_border_to_node_edges() {
     let mut g = make_compound_graph();
     g.set_graph_label(GraphLabel::default());
@@ -1690,8 +1684,6 @@ fn nesting_run_adds_sufficient_weight_to_border_to_node_edges() {
 }
 
 #[test]
-// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
-#[ignore]
 fn nesting_run_adds_edge_from_root_to_top_of_top_level_subgraphs() {
     let mut g = make_compound_graph();
     g.set_graph_label(GraphLabel::default());
@@ -1808,8 +1800,6 @@ fn nesting_run_expands_inter_node_edges_3() {
 }
 
 #[test]
-// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
-#[ignore]
 fn nesting_run_sets_minlen_correctly_for_nested_sg_border_to_children() {
     let mut g = make_compound_graph();
     g.set_graph_label(GraphLabel::default());
@@ -1898,8 +1888,6 @@ fn normalize_run_assigns_width_height_from_edge_on_label_rank() {
 }
 
 #[test]
-// TODO: normalize::undo doesn't restore updated width/height from label dummy node
-#[ignore]
 fn normalize_undo_sets_coords_and_dims_for_edge_label() {
     let mut g = Graph::new();
     set_node(&mut g, "a", 10.0, 10.0);
@@ -1933,8 +1921,6 @@ fn normalize_undo_sets_coords_and_dims_for_edge_label() {
 }
 
 #[test]
-// TODO: normalize::undo doesn't restore updated width/height from label dummy node
-#[ignore]
 fn normalize_undo_sets_coords_and_dims_for_long_edge_label() {
     let mut g = Graph::new();
     set_node(&mut g, "a", 10.0, 10.0);
@@ -1968,8 +1954,6 @@ fn normalize_undo_sets_coords_and_dims_for_long_edge_label() {
 }
 
 #[test]
-// TODO: normalize::undo doesn't handle multi-edge name propagation correctly
-#[ignore]
 fn normalize_undo_restores_multi_edges() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2045,8 +2029,6 @@ fn parent_dummy_chains_no_parent_if_both_have_no_parent() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_uses_tails_parent_for_first_node() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2074,8 +2056,6 @@ fn parent_dummy_chains_uses_tails_parent_for_first_node() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_uses_heads_parent_if_tails_is_root() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2104,8 +2084,6 @@ fn parent_dummy_chains_uses_heads_parent_if_tails_is_root() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_handles_long_chain_starting_in_subgraph() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2149,8 +2127,6 @@ fn parent_dummy_chains_handles_long_chain_starting_in_subgraph() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_handles_long_chain_ending_in_subgraph() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2194,8 +2170,6 @@ fn parent_dummy_chains_handles_long_chain_ending_in_subgraph() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_handles_nested_subgraphs() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2250,8 +2224,6 @@ fn parent_dummy_chains_handles_nested_subgraphs() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_handles_overlapping_rank_ranges() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2301,8 +2273,6 @@ fn parent_dummy_chains_handles_overlapping_rank_ranges() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_handles_lca_not_root_1() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,
@@ -2346,8 +2316,6 @@ fn parent_dummy_chains_handles_lca_not_root_1() {
 }
 
 #[test]
-// TODO: parent_dummy_chains LCA path finding has bugs
-#[ignore]
 fn parent_dummy_chains_handles_lca_not_root_2() {
     let mut g = Graph::with_options(GraphOptions {
         directed: true,

@@ -1,6 +1,6 @@
 //! Graph algorithms: topological sort, DFS traversal, connected components, etc.
 
-use super::Graph;
+use super::{Edge, Graph};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Error returned when a cycle is detected during topological sort.
@@ -231,45 +231,82 @@ pub fn components<N, E>(g: &Graph<N, E>) -> Vec<Vec<String>> {
     result
 }
 
-/// Dijkstra's single-source shortest paths.
+// ============================================================
+// Shortest-path result type
+// ============================================================
+
+/// Single-source shortest path result entry: (distance, predecessor).
+/// Predecessor is `None` for source or unreachable nodes.
+pub type PathEntry = (f64, Option<String>);
+
+// ============================================================
+// Dijkstra
+// ============================================================
+
+/// Dijkstra's single-source shortest paths (simple API).
+/// `weight_fn` takes an edge label reference and returns its weight.
 /// Returns a map from node to (distance, predecessor).
 pub fn dijkstra<N, E>(
     g: &Graph<N, E>,
     source: &str,
     weight_fn: impl Fn(&E) -> f64,
-) -> HashMap<String, (f64, Option<String>)> {
-    let mut dist: HashMap<String, (f64, Option<String>)> = HashMap::new();
+) -> HashMap<String, PathEntry> {
+    dijkstra_with_edge_fn(
+        g,
+        source,
+        |e: &Edge| {
+            g.edge(&e.v, &e.w, e.name.as_deref())
+                .map(|l| weight_fn(l))
+                .unwrap_or(1.0)
+        },
+        None,
+    )
+}
+
+/// Dijkstra's single-source shortest paths (full API with edge function).
+///
+/// `weight_fn` takes an `Edge` descriptor and returns its weight.
+/// `edge_fn` optionally customizes which edges to traverse from each node.
+pub fn dijkstra_with_edge_fn<N, E>(
+    g: &Graph<N, E>,
+    source: &str,
+    weight_fn: impl Fn(&Edge) -> f64,
+    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+) -> HashMap<String, PathEntry> {
+    let mut dist: HashMap<String, PathEntry> = HashMap::new();
     let mut pq = PriorityQueue::new();
 
-    dist.insert(source.to_string(), (0.0, None));
-    pq.insert(source.to_string(), 0.0);
-
     for v in g.nodes() {
-        if v != source {
-            dist.insert(v.clone(), (f64::INFINITY, None));
-            pq.insert(v, f64::INFINITY);
-        }
+        let d = if v == source { 0.0 } else { f64::INFINITY };
+        dist.insert(v.clone(), (d, None));
+        pq.insert(v, d);
     }
+
+    let default_edge_fn = |v: &str| -> Vec<Edge> {
+        g.out_edges(v, None).unwrap_or_default()
+    };
 
     while let Some((u, d)) = pq.extract_min() {
         if d == f64::INFINITY {
             break;
         }
-        let edges = if g.is_directed() {
-            g.out_edges(&u, None)
-        } else {
-            g.node_edges(&u, None)
+        let edges = match edge_fn {
+            Some(ef) => ef(&u),
+            None => default_edge_fn(&u),
         };
-        if let Some(edges) = edges {
-            for e in edges {
-                let w = if e.v == u { &e.w } else { &e.v };
-                if let Some(label) = g.edge(&e.v, &e.w, e.name.as_deref()) {
-                    let alt = d + weight_fn(label);
-                    if alt < dist.get(w).map_or(f64::INFINITY, |d| d.0) {
-                        dist.insert(w.clone(), (alt, Some(u.clone())));
-                        pq.decrease(w, alt);
-                    }
-                }
+        for e in edges {
+            let w = if e.v != u { &e.v } else { &e.w };
+            let weight = weight_fn(&e);
+            if weight < 0.0 {
+                panic!(
+                    "dijkstra does not allow negative edge weights. Bad edge: {} Weight: {}",
+                    e, weight
+                );
+            }
+            let alt = d + weight;
+            if alt < dist.get(w).map_or(f64::INFINITY, |d| d.0) {
+                dist.insert(w.clone(), (alt, Some(u.clone())));
+                pq.decrease(w, alt);
             }
         }
     }
@@ -277,8 +314,275 @@ pub fn dijkstra<N, E>(
     dist
 }
 
+/// Run Dijkstra from every node. Returns source -> { target -> PathEntry }.
+///
+/// `weight_fn` takes an `Edge` descriptor and returns its weight.
+/// `edge_fn` optionally customizes which edges to traverse.
+pub fn dijkstra_all<N, E>(
+    g: &Graph<N, E>,
+    weight_fn: impl Fn(&Edge) -> f64,
+    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+) -> HashMap<String, HashMap<String, PathEntry>> {
+    let mut result = HashMap::new();
+    for v in g.nodes() {
+        result.insert(v.clone(), dijkstra_with_edge_fn(g, &v, &weight_fn, edge_fn));
+    }
+    result
+}
+
+// ============================================================
+// Bellman-Ford
+// ============================================================
+
+/// Bellman-Ford single-source shortest paths. Handles negative weights.
+/// Returns a map from node to (distance, predecessor).
+/// Panics if the graph contains a negative weight cycle.
+///
+/// `weight_fn` takes an `Edge` descriptor and returns its weight.
+/// `edge_fn` optionally customizes which edges to traverse.
+pub fn bellman_ford<N, E>(
+    g: &Graph<N, E>,
+    source: &str,
+    weight_fn: impl Fn(&Edge) -> f64,
+    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+) -> HashMap<String, PathEntry> {
+    let nodes = g.nodes();
+    let mut results: HashMap<String, PathEntry> = HashMap::new();
+
+    let default_edge_fn = |v: &str| -> Vec<Edge> {
+        g.out_edges(v, None).unwrap_or_default()
+    };
+
+    // Initialization
+    for v in &nodes {
+        let d = if v == source { 0.0 } else { f64::INFINITY };
+        results.insert(v.clone(), (d, None));
+    }
+
+    let relax_all_edges = |results: &mut HashMap<String, PathEntry>| -> bool {
+        let mut did_upgrade = false;
+        for vertex in &nodes {
+            let edges = match edge_fn {
+                Some(ef) => ef(vertex),
+                None => default_edge_fn(vertex),
+            };
+            for edge in edges {
+                // If the vertex on which the edgeFn is called is
+                // the edge.w, then we treat the edge as if it was reversed
+                let in_vertex = if edge.v == *vertex { &edge.v } else { &edge.w };
+                let out_vertex = if *in_vertex == edge.v { &edge.w } else { &edge.v };
+                let relaxed_edge = Edge::new(in_vertex.clone(), out_vertex.clone());
+                let edge_weight = weight_fn(&relaxed_edge);
+                let in_dist = results.get(in_vertex.as_str()).map_or(f64::INFINITY, |e| e.0);
+                let out_dist = results.get(out_vertex.as_str()).map_or(f64::INFINITY, |e| e.0);
+                if in_dist + edge_weight < out_dist {
+                    results.insert(
+                        out_vertex.clone(),
+                        (in_dist + edge_weight, Some(in_vertex.clone())),
+                    );
+                    did_upgrade = true;
+                }
+            }
+        }
+        did_upgrade
+    };
+
+    let num_nodes = nodes.len();
+    let mut iterations = 0usize;
+    let mut did_upgrade;
+
+    // Relax all edges |V|-1 times
+    for _ in 1..num_nodes {
+        did_upgrade = relax_all_edges(&mut results);
+        iterations += 1;
+        if !did_upgrade {
+            break;
+        }
+    }
+
+    // Detect negative weight cycle
+    if num_nodes > 1 && iterations == num_nodes - 1 {
+        did_upgrade = relax_all_edges(&mut results);
+        if did_upgrade {
+            panic!("The graph contains a negative weight cycle");
+        }
+    }
+
+    results
+}
+
+// ============================================================
+// Floyd-Warshall
+// ============================================================
+
+/// Floyd-Warshall all-pairs shortest paths.
+/// Returns source -> { target -> PathEntry }.
+///
+/// `weight_fn` takes an `Edge` descriptor and returns its weight.
+/// `edge_fn` optionally customizes which edges to traverse.
+pub fn floyd_warshall<N, E>(
+    g: &Graph<N, E>,
+    weight_fn: impl Fn(&Edge) -> f64,
+    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+) -> HashMap<String, HashMap<String, PathEntry>> {
+    let nodes = g.nodes();
+    let mut results: HashMap<String, HashMap<String, PathEntry>> = HashMap::new();
+
+    let default_edge_fn = |v: &str| -> Vec<Edge> {
+        g.out_edges(v, None).unwrap_or_default()
+    };
+
+    // Initialize
+    for v in &nodes {
+        let mut row: HashMap<String, PathEntry> = HashMap::new();
+        row.insert(v.clone(), (0.0, None));
+        for w in &nodes {
+            if v != w {
+                row.insert(w.clone(), (f64::INFINITY, None));
+            }
+        }
+        let edges = match edge_fn {
+            Some(ef) => ef(v),
+            None => default_edge_fn(v),
+        };
+        for edge in edges {
+            let w = if edge.v == *v { &edge.w } else { &edge.v };
+            let d = weight_fn(&edge);
+            row.insert(w.clone(), (d, Some(v.clone())));
+        }
+        results.insert(v.clone(), row);
+    }
+
+    // Floyd-Warshall relaxation
+    for k in &nodes {
+        for i in &nodes {
+            for j in &nodes {
+                let ik = results[i][k].0;
+                let kj = results[k][j].0;
+                let ij = results[i][j].0;
+                let alt = ik + kj;
+                if alt < ij {
+                    let pred = results[k][j].1.clone();
+                    results.get_mut(i).unwrap().insert(j.clone(), (alt, pred));
+                }
+            }
+        }
+    }
+
+    results
+}
+
+// ============================================================
+// Extract path
+// ============================================================
+
+/// Extracted path result: weight and ordered list of nodes.
+pub struct ExtractedPath {
+    pub weight: f64,
+    pub path: Vec<String>,
+}
+
+/// Extract a path from shortest-path results.
+/// Panics if the source or destination is invalid.
+pub fn extract_path(
+    shortest_paths: &HashMap<String, PathEntry>,
+    source: &str,
+    destination: &str,
+) -> ExtractedPath {
+    // Validate source: predecessor must be None
+    match shortest_paths.get(source) {
+        Some((_, None)) => {}
+        _ => panic!("Invalid source vertex"),
+    }
+
+    // Validate destination: predecessor must be Some (unless dest == source)
+    if destination != source {
+        match shortest_paths.get(destination) {
+            Some((_, Some(_))) => {}
+            _ => panic!("Invalid destination vertex"),
+        }
+    }
+
+    let weight = shortest_paths[destination].0;
+    let mut path = Vec::new();
+    let mut current = destination.to_string();
+
+    while current != source {
+        path.push(current.clone());
+        current = shortest_paths[&current]
+            .1
+            .clone()
+            .expect("broken path chain");
+    }
+    path.push(source.to_string());
+    path.reverse();
+
+    ExtractedPath { weight, path }
+}
+
+// ============================================================
+// Reduce (graph fold)
+// ============================================================
+
+/// Graph reduction traversal: accumulate a value over a DFS traversal.
+/// `roots` are the starting nodes; `order` is Pre or Post.
+pub fn reduce<N, E, T>(
+    g: &Graph<N, E>,
+    roots: &[&str],
+    order: DfsOrder,
+    f: impl Fn(T, &str) -> T,
+    initial: T,
+) -> T {
+    let mut visited = HashSet::new();
+    let mut acc = initial;
+
+    for root in roots {
+        assert!(g.has_node(root), "Graph does not have node: {}", root);
+        acc = do_reduce(g, root, order, &mut visited, &f, acc);
+    }
+    acc
+}
+
+fn do_reduce<N, E, T>(
+    g: &Graph<N, E>,
+    v: &str,
+    order: DfsOrder,
+    visited: &mut HashSet<String>,
+    f: &impl Fn(T, &str) -> T,
+    mut acc: T,
+) -> T {
+    if visited.contains(v) {
+        return acc;
+    }
+    visited.insert(v.to_string());
+
+    if order == DfsOrder::Pre {
+        acc = f(acc, v);
+    }
+
+    let neighbors = if g.is_directed() {
+        g.successors(v).unwrap_or_default()
+    } else {
+        g.neighbors(v).unwrap_or_default()
+    };
+    for w in neighbors {
+        acc = do_reduce(g, &w, order, visited, f, acc);
+    }
+
+    if order == DfsOrder::Post {
+        acc = f(acc, v);
+    }
+
+    acc
+}
+
+// ============================================================
+// Prim
+// ============================================================
+
 /// Prim's minimum spanning tree for undirected graphs.
 /// Returns a new undirected graph representing the MST.
+/// Panics if the graph is not connected.
 pub fn prim<N, E>(g: &Graph<N, E>, weight_fn: impl Fn(&E) -> f64) -> Graph<(), f64>
 where
     N: Clone,
@@ -306,6 +610,7 @@ where
 
     let mut parents: HashMap<String, String> = HashMap::new();
     let mut weights: HashMap<String, f64> = HashMap::new();
+    let mut init = false;
 
     while let Some((u, _)) = pq.extract_min() {
         in_mst.insert(u.clone());
@@ -313,6 +618,10 @@ where
         if let Some(parent) = parents.get(&u) {
             let w = weights.get(&u).copied().unwrap_or(0.0);
             result.set_edge(parent.clone(), u.clone(), Some(w), None);
+        } else if init {
+            panic!("Input graph is not connected");
+        } else {
+            init = true;
         }
 
         let edges = g.node_edges(&u, None);

@@ -7,6 +7,17 @@ use std::collections::HashMap;
 use crate::graph::Graph;
 use super::types::*;
 
+#[derive(Debug, Clone)]
+struct PostorderNum {
+    low: usize,
+    lim: usize,
+}
+
+struct PathData {
+    path: Vec<Option<String>>,
+    lca: Option<String>,
+}
+
 /// Walk dummy chains and set their parent to the appropriate subgraph
 /// using LCA-based path finding with postorder numbering.
 pub(crate) fn parent_dummy_chains(g: &mut Graph<NodeLabel, EdgeLabel>) {
@@ -20,7 +31,7 @@ pub(crate) fn parent_dummy_chains(g: &mut Graph<NodeLabel, EdgeLabel>) {
     }
 
     // Build postorder numbering for the compound hierarchy
-    let (post_lim, post_low) = build_postorder(g);
+    let postorder_nums = postorder(g);
 
     for chain_start in &dummy_chains {
         let mut v = chain_start.clone();
@@ -36,175 +47,168 @@ pub(crate) fn parent_dummy_chains(g: &mut Graph<NodeLabel, EdgeLabel>) {
         };
 
         // Find LCA path between the source and target
-        let path = find_path(g, &post_lim, &post_low, &edge_obj.v, &edge_obj.w);
-        let mut path_idx = 0;
+        let path_data = find_path(g, &postorder_nums, &edge_obj.v, &edge_obj.w);
+        let path = path_data.path;
+        let lca = path_data.lca;
+        let mut path_idx: usize = 0;
         let mut ascending = true;
 
-        // Walk the dummy chain
-        loop {
-            let succs = g.successors(&v).unwrap_or_default();
-            let w = match succs.into_iter().find(|s| {
-                g.node(s).map_or(false, |n| n.dummy.is_some())
-            }) {
-                Some(w) => w,
+        // Walk the dummy chain: v starts at the first dummy, ends when we reach edgeObj.w
+        while v != edge_obj.w {
+            let node = match g.node(&v) {
+                Some(n) => n.clone(),
                 None => break,
             };
 
             if ascending {
-                // Walk up the path (from source side) until we find the
-                // right parent for the current rank
-                let w_rank = g.node(&w).and_then(|n| n.rank).unwrap_or(0);
-                while path_idx < path.ascending.len() {
-                    let parent_node = &path.ascending[path_idx];
-                    let (parent_min, parent_max) = get_rank_range(g, parent_node);
-                    if w_rank >= parent_min && w_rank <= parent_max {
+                // Walk up the ascending portion of the path
+                while path_idx < path.len() {
+                    let path_v = &path[path_idx];
+                    if path_v == &lca {
+                        // Reached the LCA, switch to descending
+                        ascending = false;
                         break;
+                    }
+                    if let Some(pv) = path_v {
+                        if let Some(pn) = g.node(pv) {
+                            if pn.max_rank.unwrap_or(0) >= node.rank.unwrap_or(0) {
+                                break;
+                            }
+                        }
                     }
                     path_idx += 1;
                 }
 
-                if path_idx < path.ascending.len() {
-                    g.set_parent(&w, Some(&path.ascending[path_idx]));
-                }
-
-                if path_idx >= path.ascending.len() {
+                if path[path_idx] == lca {
                     ascending = false;
-                    // Switch to descending path
-                    path_idx = path.descending.len().saturating_sub(1);
                 }
             }
 
             if !ascending {
-                // Walk down the path (to target side)
-                let w_rank = g.node(&w).and_then(|n| n.rank).unwrap_or(0);
-                while path_idx > 0 {
-                    let parent_node = &path.descending[path_idx];
-                    let (parent_min, parent_max) = get_rank_range(g, parent_node);
-                    if w_rank >= parent_min && w_rank <= parent_max {
+                // Walk down the descending portion of the path
+                while path_idx < path.len() - 1 {
+                    let next = &path[path_idx + 1];
+                    if let Some(nv) = next {
+                        if let Some(nn) = g.node(nv) {
+                            if nn.min_rank.unwrap_or(0) <= node.rank.unwrap_or(0) {
+                                path_idx += 1;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
                         break;
                     }
-                    path_idx = path_idx.saturating_sub(1);
-                }
-
-                if path_idx < path.descending.len() {
-                    g.set_parent(&w, Some(&path.descending[path_idx]));
                 }
             }
 
-            v = w;
+            // Set parent for the current dummy node
+            if let Some(Some(pv)) = path.get(path_idx) {
+                g.set_parent(&v, Some(pv));
+            }
+
+            // Move to the next node in the chain
+            let succs = g.successors(&v).unwrap_or_default();
+            if succs.is_empty() {
+                break;
+            }
+            v = succs[0].clone();
         }
     }
 }
 
-fn get_rank_range(g: &Graph<NodeLabel, EdgeLabel>, v: &str) -> (i32, i32) {
-    let node = g.node(v);
-    let min = node.and_then(|n| n.min_rank).or_else(|| node.and_then(|n| n.rank)).unwrap_or(0);
-    let max = node.and_then(|n| n.max_rank).or_else(|| node.and_then(|n| n.rank)).unwrap_or(0);
-    (min, max)
-}
-
-struct LcaPath {
-    ascending: Vec<String>,
-    descending: Vec<String>,
-}
-
 /// Build postorder numbering of the compound hierarchy.
-/// Returns (lim map, low map).
-fn build_postorder(
+fn postorder(
     g: &Graph<NodeLabel, EdgeLabel>,
-) -> (HashMap<String, usize>, HashMap<String, usize>) {
-    let mut lim: HashMap<String, usize> = HashMap::new();
-    let mut low: HashMap<String, usize> = HashMap::new();
-    let mut counter = 0usize;
+) -> HashMap<String, PostorderNum> {
+    let mut result: HashMap<String, PostorderNum> = HashMap::new();
+    let mut lim: usize = 0;
 
     fn dfs(
         g: &Graph<NodeLabel, EdgeLabel>,
         v: &str,
-        counter: &mut usize,
-        lim: &mut HashMap<String, usize>,
-        low: &mut HashMap<String, usize>,
+        lim: &mut usize,
+        result: &mut HashMap<String, PostorderNum>,
     ) {
-        let low_val = *counter;
+        let low = *lim;
         let children = g.children(Some(v));
         for child in &children {
-            dfs(g, child, counter, lim, low);
+            dfs(g, child, lim, result);
         }
-        low.insert(v.to_string(), low_val);
-        lim.insert(v.to_string(), *counter);
-        *counter += 1;
+        result.insert(v.to_string(), PostorderNum { low, lim: *lim });
+        *lim += 1;
     }
 
     let roots = g.children(None);
     for root in &roots {
-        dfs(g, root, &mut counter, &mut lim, &mut low);
+        dfs(g, root, &mut lim, &mut result);
     }
 
-    (lim, low)
+    result
 }
 
 /// Find the path from v to w through their LCA in the compound hierarchy.
 fn find_path(
     g: &Graph<NodeLabel, EdgeLabel>,
-    lim: &HashMap<String, usize>,
-    low: &HashMap<String, usize>,
+    postorder_nums: &HashMap<String, PostorderNum>,
     v: &str,
     w: &str,
-) -> LcaPath {
-    let mut v_path = Vec::new();
-    let mut w_path = Vec::new();
-    let mut v_cur = v.to_string();
+) -> PathData {
+    let mut v_path: Vec<Option<String>> = Vec::new();
+    let mut w_path: Vec<Option<String>> = Vec::new();
 
-    // Walk v up to the LCA
-    let w_lim = lim.get(w).copied().unwrap_or(0);
-    let w_low = low.get(w).copied().unwrap_or(0);
+    let v_nums = postorder_nums.get(v);
+    let w_nums = postorder_nums.get(w);
+    let low = std::cmp::min(
+        v_nums.map(|n| n.low).unwrap_or(0),
+        w_nums.map(|n| n.low).unwrap_or(0),
+    );
+    let lim = std::cmp::max(
+        v_nums.map(|n| n.lim).unwrap_or(0),
+        w_nums.map(|n| n.lim).unwrap_or(0),
+    );
 
-    // Ascend from v until we find an ancestor that contains w
-    while !is_descendant(lim, low, &v_cur, w_lim, w_low) {
-        if let Some(parent) = g.parent(&v_cur) {
-            v_path.push(parent.to_string());
-            v_cur = parent.to_string();
-        } else {
-            break;
-        }
-    }
-
-    // Now ascend from w until we reach the same LCA
-    let lca = v_cur.clone();
-    let lca_lim = lim.get(&lca).copied().unwrap_or(0);
-    let lca_low = low.get(&lca).copied().unwrap_or(0);
-
-    let mut w_cur = w.to_string();
-    #[allow(unused_assignments)]
-    while w_cur != lca {
-        if let Some(parent) = g.parent(&w_cur) {
-            let p = parent.to_string();
-            if p == lca || (lim.get(&p).copied().unwrap_or(0) == lca_lim
-                && low.get(&p).copied().unwrap_or(0) == lca_low)
-            {
-                w_path.push(p);
+    // Traverse up from v to find the LCA
+    let mut parent: Option<String> = Some(v.to_string());
+    loop {
+        parent = g.parent(parent.as_deref().unwrap_or("")).map(|s| s.to_string());
+        v_path.push(parent.clone());
+        if let Some(ref p) = parent {
+            if let Some(nums) = postorder_nums.get(p) {
+                if nums.low <= low && lim <= nums.lim {
+                    break;
+                }
+            } else {
                 break;
             }
-            w_path.push(p.clone());
-            w_cur = p;
         } else {
             break;
         }
     }
+    let lca = parent;
 
-    LcaPath {
-        ascending: v_path,
-        descending: w_path,
+    // Traverse from w to LCA
+    let mut w_parent = w.to_string();
+    loop {
+        let p = g.parent(&w_parent).map(|s| s.to_string());
+        match p {
+            Some(ref pv) if Some(pv.clone()) != lca.as_ref().cloned().or(None) => {
+                w_path.push(Some(pv.clone()));
+                w_parent = pv.clone();
+            }
+            _ => break,
+        }
     }
-}
 
-fn is_descendant(
-    lim: &HashMap<String, usize>,
-    low: &HashMap<String, usize>,
-    ancestor: &str,
-    node_lim: usize,
-    node_low: usize,
-) -> bool {
-    let a_low = low.get(ancestor).copied().unwrap_or(0);
-    let a_lim = lim.get(ancestor).copied().unwrap_or(0);
-    a_low <= node_low && node_lim <= a_lim
+    // Combine: vPath + reversed wPath
+    w_path.reverse();
+    let mut combined = v_path;
+    combined.extend(w_path);
+
+    PathData {
+        path: combined,
+        lca,
+    }
 }

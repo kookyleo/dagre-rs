@@ -4,6 +4,7 @@
 //! Nodes are identified by string keys. Node and edge labels are generic.
 
 pub mod alg;
+pub mod json;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -369,6 +370,8 @@ impl<N, E> Graph<N, E> {
     // --- Compound graph operations ---
 
     /// Set the parent of a node. Both nodes must exist. Pass `None` to set parent to root.
+    /// Panics if setting the parent would create a cycle in the parent hierarchy
+    /// (i.e. if `parent` is a descendant of `v`).
     pub fn set_parent(&mut self, v: &str, parent: Option<&str>) -> &mut Self {
         assert!(self.is_compound, "Cannot set parent in a non-compound graph");
 
@@ -380,6 +383,19 @@ impl<N, E> Graph<N, E> {
         }
         if !self.has_node(v) {
             self.set_node(v.to_string(), None);
+        }
+
+        // Check for cycle: walk up from `parent` and make sure we don't reach `v`
+        if parent != GRAPH_NODE {
+            let mut ancestor = Some(parent);
+            while let Some(a) = ancestor {
+                if a == v {
+                    panic!("Setting {} as parent of {} would create a cycle", parent, v);
+                }
+                ancestor = self.parent.get(a).and_then(|p| {
+                    if p == GRAPH_NODE { None } else { Some(p.as_str()) }
+                });
+            }
         }
 
         // Remove from old parent

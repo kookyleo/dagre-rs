@@ -53,7 +53,11 @@ fn normalize_edge(
         attrs.width = 0.0;
         attrs.height = 0.0;
         attrs.edge_label = Some(Box::new(edge_label.clone()));
-        attrs.edge_obj = Some(crate::graph::Edge::new(v, w));
+        attrs.edge_obj = if let Some(n) = name {
+            Some(crate::graph::Edge::with_name(v, w, n))
+        } else {
+            Some(crate::graph::Edge::new(v, w))
+        };
         attrs.rank = Some(current_rank);
 
         // If this dummy is at the label rank, give it the label's dimensions
@@ -109,7 +113,7 @@ pub(crate) fn undo(g: &mut Graph<NodeLabel, EdgeLabel>, dummy_chains: &[String])
             .map(|l| (**l).clone())
             .unwrap_or_default();
 
-        // Restore the original edge
+        // Restore the original edge (using the edge name from edge_obj for multi-edges)
         g.set_edge(
             edge_obj.v.clone(),
             edge_obj.w.clone(),
@@ -150,11 +154,13 @@ pub(crate) fn undo(g: &mut Graph<NodeLabel, EdgeLabel>, dummy_chains: &[String])
             v = w;
         }
 
-        // Update the restored edge with collected points
+        // Update the restored edge with all collected data
         if let Some(label) = g.edge_mut(&edge_obj.v, &edge_obj.w, edge_obj.name.as_deref()) {
             label.points = orig_label.points;
             label.x = orig_label.x;
             label.y = orig_label.y;
+            label.width = orig_label.width;
+            label.height = orig_label.height;
         }
     }
 }
