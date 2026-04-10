@@ -263,7 +263,7 @@ fn position_y_increases_with_rank() {
 fn layout_single_node() {
     let mut g = Graph::new();
     set_node(&mut g, "a", 50.0, 100.0);
-    layout(&mut g);
+    layout(&mut g, None);
 
     let a = g.node("a").unwrap();
     assert!(a.x.is_some(), "node should have x coordinate");
@@ -276,7 +276,7 @@ fn layout_two_connected_nodes() {
     set_node(&mut g, "a", 50.0, 100.0);
     set_node(&mut g, "b", 75.0, 200.0);
     set_edge(&mut g, "a", "b");
-    layout(&mut g);
+    layout(&mut g, None);
 
     let a = g.node("a").unwrap();
     let b = g.node("b").unwrap();
@@ -300,7 +300,7 @@ fn layout_diamond_graph() {
     set_edge(&mut g, "a", "c");
     set_edge(&mut g, "b", "d");
     set_edge(&mut g, "c", "d");
-    layout(&mut g);
+    layout(&mut g, None);
 
     // All nodes should have coordinates
     for v in &["a", "b", "c", "d"] {
@@ -330,7 +330,7 @@ fn layout_chain_graph() {
     set_edge(&mut g, "b", "c");
     set_edge(&mut g, "c", "d");
     set_edge(&mut g, "d", "e");
-    layout(&mut g);
+    layout(&mut g, None);
 
     // All y values should be strictly increasing
     let ys: Vec<f64> = ["a", "b", "c", "d", "e"]
@@ -359,7 +359,7 @@ fn layout_handles_cycle() {
     set_edge(&mut g, "a", "b");
     set_edge(&mut g, "b", "c");
     set_edge(&mut g, "c", "a");
-    layout(&mut g);
+    layout(&mut g, None);
 
     // All nodes should have coordinates despite the cycle
     for v in &["a", "b", "c"] {
@@ -378,7 +378,7 @@ fn layout_handles_disconnected_components() {
     set_node(&mut g, "d", 30.0, 20.0);
     set_edge(&mut g, "a", "b");
     set_edge(&mut g, "c", "d");
-    layout(&mut g);
+    layout(&mut g, None);
 
     for v in &["a", "b", "c", "d"] {
         let n = g.node(v).unwrap();

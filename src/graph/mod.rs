@@ -608,6 +608,32 @@ impl<N, E> Graph<N, E> {
             }
         }
 
+        // For undirected graphs, also remove the reverse adjacency entries
+        if !self.is_directed {
+            if let Some(in_e) = self.in_edges.get_mut(&e.v) {
+                in_e.remove(eid);
+            }
+            if let Some(out_e) = self.out_edges.get_mut(&e.w) {
+                out_e.remove(eid);
+            }
+            if let Some(preds) = self.preds.get_mut(&e.v) {
+                if let Some(count) = preds.get_mut(&e.w) {
+                    *count -= 1;
+                    if *count == 0 {
+                        preds.remove(&e.w);
+                    }
+                }
+            }
+            if let Some(sucs) = self.sucs.get_mut(&e.w) {
+                if let Some(count) = sucs.get_mut(&e.v) {
+                    *count -= 1;
+                    if *count == 0 {
+                        sucs.remove(&e.v);
+                    }
+                }
+            }
+        }
+
         label
     }
 

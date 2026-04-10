@@ -1,5 +1,37 @@
 use std::collections::HashMap;
 
+/// Options for the layout algorithm.
+#[derive(Debug, Clone)]
+pub struct LayoutOptions {
+    pub rankdir: RankDir,
+    pub align: Option<Align>,
+    pub nodesep: f64,
+    pub edgesep: f64,
+    pub ranksep: f64,
+    pub marginx: f64,
+    pub marginy: f64,
+    pub acyclicer: Option<Acyclicer>,
+    pub ranker: Ranker,
+    pub rank_align: RankAlign,
+}
+
+impl Default for LayoutOptions {
+    fn default() -> Self {
+        Self {
+            rankdir: RankDir::TB,
+            align: None,
+            nodesep: 50.0,
+            edgesep: 20.0,
+            ranksep: 50.0,
+            marginx: 0.0,
+            marginy: 0.0,
+            acyclicer: None,
+            ranker: Ranker::NetworkSimplex,
+            rank_align: RankAlign::Center,
+        }
+    }
+}
+
 /// A 2D point with floating-point coordinates.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Point {
@@ -11,6 +43,13 @@ impl Point {
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
+}
+
+/// A self-edge saved during layout for later reinsertion.
+#[derive(Debug, Clone)]
+pub struct SelfEdge {
+    pub e: crate::graph::Edge,
+    pub label: EdgeLabel,
 }
 
 /// Direction for rank layout.
@@ -90,6 +129,7 @@ pub struct GraphLabel {
     pub nesting_root: Option<String>,
     pub node_rank_factor: Option<f64>,
     pub dummy_chains: Vec<String>,
+    pub max_rank: Option<i32>,
 }
 
 impl Default for GraphLabel {
@@ -111,6 +151,7 @@ impl Default for GraphLabel {
             nesting_root: None,
             node_rank_factor: None,
             dummy_chains: Vec::new(),
+            max_rank: None,
         }
     }
 }
@@ -166,6 +207,12 @@ pub struct NodeLabel {
     pub shape: Option<String>,
     pub edge_label: Option<Box<EdgeLabel>>,
     pub edge_obj: Option<crate::graph::Edge>,
+    /// Self-edges removed during layout and reinserted later.
+    pub self_edges: Vec<SelfEdge>,
+    /// For "selfedge" dummy nodes: the original edge descriptor.
+    pub self_edge_data_e: Option<crate::graph::Edge>,
+    /// For "selfedge" dummy nodes: the original edge label.
+    pub self_edge_data_label: Option<EdgeLabel>,
     /// Extra properties that don't have dedicated fields.
     pub extra: HashMap<String, String>,
 }
@@ -199,6 +246,9 @@ impl Default for NodeLabel {
             shape: None,
             edge_label: None,
             edge_obj: None,
+            self_edges: Vec::new(),
+            self_edge_data_e: None,
+            self_edge_data_label: None,
             extra: HashMap::new(),
         }
     }
