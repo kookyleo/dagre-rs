@@ -1195,6 +1195,11 @@ fn normalize_ranks_works_for_negative_ranks() {
 #[test]
 fn remove_empty_ranks_removes_border_ranks() {
     let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    // Set nodeRankFactor > 1 so empty ranks get removed
+    let mut gl = GraphLabel::default();
+    gl.node_rank_factor = Some(2.0);
+    g.set_graph_label(gl);
+
     let mut a = NodeLabel::default();
     a.rank = Some(0);
     g.set_node("a".to_string(), Some(a));
@@ -1204,7 +1209,9 @@ fn remove_empty_ranks_removes_border_ranks() {
 
     util::remove_empty_ranks(&mut g);
     assert_eq!(g.node("a").unwrap().rank, Some(0));
-    assert_eq!(g.node("b").unwrap().rank, Some(1));
+    // With nodeRankFactor=2, ranks 0,2,4 are kept (multiples of 2),
+    // ranks 1,3 are removed. Rank 4 shifts down by 2 (two removed ranks).
+    assert_eq!(g.node("b").unwrap().rank, Some(2));
 }
 
 // ============================================================
