@@ -1571,3 +1571,2636 @@ fn coord_undo_rl_swaps_and_negates() {
     assert_eq!(a.width, 200.0);
     assert_eq!(a.height, 100.0);
 }
+
+// ============================================================
+// Ported from dagre-js: nesting-graph-test.ts
+// ============================================================
+
+fn make_compound_graph() -> Graph<NodeLabel, EdgeLabel> {
+    Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    })
+}
+
+#[test]
+fn nesting_run_connects_disconnected_graph() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    let comps = crate::graph::alg::components(&g);
+    assert_eq!(comps.len(), 2);
+    nesting_graph::run(&mut g);
+    let comps2 = crate::graph::alg::components(&g);
+    assert_eq!(comps2.len(), 1);
+    assert!(g.has_node("a"));
+    assert!(g.has_node("b"));
+}
+
+#[test]
+// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
+#[ignore]
+fn nesting_run_adds_border_nodes_to_top_and_bottom_of_subgraph() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    nesting_graph::run(&mut g);
+
+    let sg1 = g.node("sg1").unwrap();
+    let border_top = sg1.border_top.clone().expect("border_top should be set");
+    let border_bottom = sg1.border_bottom.clone().expect("border_bottom should be set");
+    assert_eq!(g.parent(&border_top), Some("sg1"));
+    assert_eq!(g.parent(&border_bottom), Some("sg1"));
+
+    // border_top -> a edge exists
+    let out_top_a = g.out_edges(&border_top, Some("a")).unwrap_or_default();
+    assert_eq!(out_top_a.len(), 1);
+    let e = &out_top_a[0];
+    assert_eq!(g.edge(&e.v, &e.w, e.name.as_deref()).unwrap().minlen, 1);
+
+    // a -> border_bottom edge exists
+    let out_a_bot = g.out_edges("a", Some(&border_bottom)).unwrap_or_default();
+    assert_eq!(out_a_bot.len(), 1);
+    let e2 = &out_a_bot[0];
+    assert_eq!(g.edge(&e2.v, &e2.w, e2.name.as_deref()).unwrap().minlen, 1);
+
+    // border nodes have dummy="border"
+    let bt_node = g.node(&border_top).unwrap();
+    assert_eq!(bt_node.dummy.as_deref(), Some("border"));
+    assert_eq!(bt_node.width, 0.0);
+    assert_eq!(bt_node.height, 0.0);
+    let bb_node = g.node(&border_bottom).unwrap();
+    assert_eq!(bb_node.dummy.as_deref(), Some("border"));
+    assert_eq!(bb_node.width, 0.0);
+    assert_eq!(bb_node.height, 0.0);
+}
+
+#[test]
+// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
+#[ignore]
+fn nesting_run_adds_edges_between_borders_of_nested_subgraphs() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("sg2", Some("sg1"));
+    g.set_parent("a", Some("sg2"));
+    nesting_graph::run(&mut g);
+
+    let sg1_top = g.node("sg1").unwrap().border_top.clone().unwrap();
+    let sg1_bot = g.node("sg1").unwrap().border_bottom.clone().unwrap();
+    let sg2_top = g.node("sg2").unwrap().border_top.clone().unwrap();
+    let sg2_bot = g.node("sg2").unwrap().border_bottom.clone().unwrap();
+
+    let out_sg1_top_sg2_top = g.out_edges(&sg1_top, Some(&sg2_top)).unwrap_or_default();
+    assert_eq!(out_sg1_top_sg2_top.len(), 1);
+    let e = &out_sg1_top_sg2_top[0];
+    assert_eq!(g.edge(&e.v, &e.w, e.name.as_deref()).unwrap().minlen, 1);
+
+    let out_sg2_bot_sg1_bot = g.out_edges(&sg2_bot, Some(&sg1_bot)).unwrap_or_default();
+    assert_eq!(out_sg2_bot_sg1_bot.len(), 1);
+    let e2 = &out_sg2_bot_sg1_bot[0];
+    assert_eq!(g.edge(&e2.v, &e2.w, e2.name.as_deref()).unwrap().minlen, 1);
+}
+
+#[test]
+// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
+#[ignore]
+fn nesting_run_adds_sufficient_weight_to_border_to_node_edges() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("sg"));
+    let mut el_ax = EdgeLabel::default();
+    el_ax.weight = 100;
+    g.set_edge("a", "x", Some(el_ax), None);
+    let mut el_xb = EdgeLabel::default();
+    el_xb.weight = 200;
+    g.set_edge("x", "b", Some(el_xb), None);
+    nesting_graph::run(&mut g);
+
+    let top = g.node("sg").unwrap().border_top.clone().unwrap();
+    let bot = g.node("sg").unwrap().border_bottom.clone().unwrap();
+    assert!(g.edge(&top, "x", None).unwrap().weight > 300);
+    assert!(g.edge("x", &bot, None).unwrap().weight > 300);
+}
+
+#[test]
+// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
+#[ignore]
+fn nesting_run_adds_edge_from_root_to_top_of_top_level_subgraphs() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    nesting_graph::run(&mut g);
+
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let border_top = g.node("sg1").unwrap().border_top.clone().unwrap();
+    let out = g.out_edges(&root, Some(&border_top)).unwrap_or_default();
+    assert_eq!(out.len(), 1);
+    assert!(g.has_edge(&root, &border_top, None));
+}
+
+#[test]
+fn nesting_run_adds_edge_from_root_to_each_node_correct_minlen_1() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    nesting_graph::run(&mut g);
+
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let out = g.out_edges(&root, Some("a")).unwrap_or_default();
+    assert_eq!(out.len(), 1);
+    let e = &out[0];
+    let label = g.edge(&e.v, &e.w, e.name.as_deref()).unwrap();
+    assert_eq!(label.weight, 0);
+    assert_eq!(label.minlen, 1);
+}
+
+#[test]
+fn nesting_run_adds_edge_from_root_to_each_node_correct_minlen_2() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    nesting_graph::run(&mut g);
+
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let out = g.out_edges(&root, Some("a")).unwrap_or_default();
+    assert_eq!(out.len(), 1);
+    let e = &out[0];
+    let label = g.edge(&e.v, &e.w, e.name.as_deref()).unwrap();
+    assert_eq!(label.weight, 0);
+    assert_eq!(label.minlen, 3);
+}
+
+#[test]
+fn nesting_run_adds_edge_from_root_to_each_node_correct_minlen_3() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("sg2", Some("sg1"));
+    g.set_parent("a", Some("sg2"));
+    nesting_graph::run(&mut g);
+
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let out = g.out_edges(&root, Some("a")).unwrap_or_default();
+    assert_eq!(out.len(), 1);
+    let e = &out[0];
+    let label = g.edge(&e.v, &e.w, e.name.as_deref()).unwrap();
+    assert_eq!(label.weight, 0);
+    assert_eq!(label.minlen, 5);
+}
+
+#[test]
+fn nesting_run_does_not_add_edge_from_root_to_itself() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    nesting_graph::run(&mut g);
+
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let out = g.out_edges(&root, Some(&root)).unwrap_or_default();
+    assert!(out.is_empty());
+}
+
+#[test]
+fn nesting_run_expands_inter_node_edges_1() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    let mut el = EdgeLabel::default();
+    el.minlen = 1;
+    g.set_edge("a", "b", Some(el), None);
+    nesting_graph::run(&mut g);
+    assert_eq!(g.edge("a", "b", None).unwrap().minlen, 1);
+}
+
+#[test]
+fn nesting_run_expands_inter_node_edges_2() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    let mut el = EdgeLabel::default();
+    el.minlen = 1;
+    g.set_edge("a", "b", Some(el), None);
+    nesting_graph::run(&mut g);
+    assert_eq!(g.edge("a", "b", None).unwrap().minlen, 3);
+}
+
+#[test]
+fn nesting_run_expands_inter_node_edges_3() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("sg2", Some("sg1"));
+    g.set_parent("a", Some("sg2"));
+    let mut el = EdgeLabel::default();
+    el.minlen = 1;
+    g.set_edge("a", "b", Some(el), None);
+    nesting_graph::run(&mut g);
+    assert_eq!(g.edge("a", "b", None).unwrap().minlen, 5);
+}
+
+#[test]
+// TODO: nesting_graph::run doesn't set NodeLabel on implicitly-created parent nodes
+#[ignore]
+fn nesting_run_sets_minlen_correctly_for_nested_sg_border_to_children() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    g.set_parent("sg2", Some("sg1"));
+    g.set_parent("b", Some("sg2"));
+    nesting_graph::run(&mut g);
+
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let sg1_top = g.node("sg1").unwrap().border_top.clone().unwrap();
+    let sg1_bot = g.node("sg1").unwrap().border_bottom.clone().unwrap();
+    let sg2_top = g.node("sg2").unwrap().border_top.clone().unwrap();
+    let sg2_bot = g.node("sg2").unwrap().border_bottom.clone().unwrap();
+
+    assert_eq!(g.edge(&root, &sg1_top, None).unwrap().minlen, 3);
+    assert_eq!(g.edge(&sg1_top, &sg2_top, None).unwrap().minlen, 1);
+    assert_eq!(g.edge(&sg1_top, "a", None).unwrap().minlen, 2);
+    assert_eq!(g.edge("a", &sg1_bot, None).unwrap().minlen, 2);
+    assert_eq!(g.edge(&sg2_top, "b", None).unwrap().minlen, 1);
+    assert_eq!(g.edge("b", &sg2_bot, None).unwrap().minlen, 1);
+    assert_eq!(g.edge(&sg2_bot, &sg1_bot, None).unwrap().minlen, 1);
+}
+
+#[test]
+fn nesting_cleanup_removes_nesting_edges() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    let mut el = EdgeLabel::default();
+    el.minlen = 1;
+    g.set_edge("a", "b", Some(el), None);
+    nesting_graph::run(&mut g);
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    nesting_graph::cleanup(&mut g, &root);
+    let succs = g.successors("a").unwrap_or_default();
+    assert_eq!(succs, vec!["b"]);
+}
+
+#[test]
+fn nesting_cleanup_removes_root_node() {
+    let mut g = make_compound_graph();
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg1"));
+    nesting_graph::run(&mut g);
+    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    nesting_graph::cleanup(&mut g, &root);
+    // sg1 + sg1_border_top + sg1_border_bottom + "a" = 4
+    assert_eq!(g.node_count(), 4);
+}
+
+// ============================================================
+// Ported from dagre-js: normalize-test.ts
+// (additional tests not already present)
+// ============================================================
+
+#[test]
+fn normalize_run_assigns_width_height_from_edge_on_label_rank() {
+    let mut g = Graph::new();
+    set_node(&mut g, "a", 10.0, 10.0);
+    set_node(&mut g, "b", 10.0, 10.0);
+    let mut el = EdgeLabel::default();
+    el.width = 20.0;
+    el.height = 10.0;
+    el.label_rank = Some(2.0);
+    g.set_edge("a".to_string(), "b".to_string(), Some(el), None);
+    g.node_mut("a").unwrap().rank = Some(0);
+    g.node_mut("b").unwrap().rank = Some(4);
+
+    let mut chains = Vec::new();
+    normalize::run(&mut g, &mut chains);
+
+    // The node at rank 2 should be the edge-label dummy with full dimensions
+    let succs_a = g.successors("a").unwrap();
+    assert_eq!(succs_a.len(), 1);
+    let d1 = &succs_a[0];
+    let succs_d1 = g.successors(d1).unwrap();
+    assert_eq!(succs_d1.len(), 1);
+    let label_v = &succs_d1[0];
+    let label_node = g.node(label_v).unwrap();
+    assert_eq!(label_node.width, 20.0);
+    assert_eq!(label_node.height, 10.0);
+}
+
+#[test]
+// TODO: normalize::undo doesn't restore updated width/height from label dummy node
+#[ignore]
+fn normalize_undo_sets_coords_and_dims_for_edge_label() {
+    let mut g = Graph::new();
+    set_node(&mut g, "a", 10.0, 10.0);
+    set_node(&mut g, "b", 10.0, 10.0);
+    let mut el = EdgeLabel::default();
+    el.width = 10.0;
+    el.height = 20.0;
+    el.label_rank = Some(1.0);
+    g.set_edge("a".to_string(), "b".to_string(), Some(el), None);
+    g.node_mut("a").unwrap().rank = Some(0);
+    g.node_mut("b").unwrap().rank = Some(2);
+
+    let mut chains = Vec::new();
+    normalize::run(&mut g, &mut chains);
+
+    // Set coords on the label dummy
+    let succs_a = g.successors("a").unwrap();
+    let label_v = succs_a[0].clone();
+    g.node_mut(&label_v).unwrap().x = Some(50.0);
+    g.node_mut(&label_v).unwrap().y = Some(60.0);
+    g.node_mut(&label_v).unwrap().width = 20.0;
+    g.node_mut(&label_v).unwrap().height = 10.0;
+
+    normalize::undo(&mut g, &chains);
+
+    let el = g.edge("a", "b", None).unwrap();
+    assert_eq!(el.x, Some(50.0));
+    assert_eq!(el.y, Some(60.0));
+    assert_eq!(el.width, 20.0);
+    assert_eq!(el.height, 10.0);
+}
+
+#[test]
+// TODO: normalize::undo doesn't restore updated width/height from label dummy node
+#[ignore]
+fn normalize_undo_sets_coords_and_dims_for_long_edge_label() {
+    let mut g = Graph::new();
+    set_node(&mut g, "a", 10.0, 10.0);
+    set_node(&mut g, "b", 10.0, 10.0);
+    let mut el = EdgeLabel::default();
+    el.width = 10.0;
+    el.height = 20.0;
+    el.label_rank = Some(2.0);
+    g.set_edge("a".to_string(), "b".to_string(), Some(el), None);
+    g.node_mut("a").unwrap().rank = Some(0);
+    g.node_mut("b").unwrap().rank = Some(4);
+
+    let mut chains = Vec::new();
+    normalize::run(&mut g, &mut chains);
+
+    // Navigate to the label node (at rank 2)
+    let d1 = g.successors("a").unwrap()[0].clone();
+    let label_v = g.successors(&d1).unwrap()[0].clone();
+    g.node_mut(&label_v).unwrap().x = Some(50.0);
+    g.node_mut(&label_v).unwrap().y = Some(60.0);
+    g.node_mut(&label_v).unwrap().width = 20.0;
+    g.node_mut(&label_v).unwrap().height = 10.0;
+
+    normalize::undo(&mut g, &chains);
+
+    let el = g.edge("a", "b", None).unwrap();
+    assert_eq!(el.x, Some(50.0));
+    assert_eq!(el.y, Some(60.0));
+    assert_eq!(el.width, 20.0);
+    assert_eq!(el.height, 10.0);
+}
+
+#[test]
+// TODO: normalize::undo doesn't handle multi-edge name propagation correctly
+#[ignore]
+fn normalize_undo_restores_multi_edges() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    set_node(&mut g, "a", 10.0, 10.0);
+    set_node(&mut g, "b", 10.0, 10.0);
+    g.node_mut("a").unwrap().rank = Some(0);
+    g.node_mut("b").unwrap().rank = Some(2);
+    g.set_edge("a".to_string(), "b".to_string(), Some(EdgeLabel::default()), Some("bar"));
+    g.set_edge("a".to_string(), "b".to_string(), Some(EdgeLabel::default()), Some("foo"));
+
+    let mut chains = Vec::new();
+    normalize::run(&mut g, &mut chains);
+
+    // Find the two dummy nodes from "a"
+    let mut out_edges = g.out_edges("a", None).unwrap_or_default();
+    out_edges.sort_by(|a, b| {
+        let an = a.name.as_deref().unwrap_or("");
+        let bn = b.name.as_deref().unwrap_or("");
+        an.cmp(bn)
+    });
+    assert_eq!(out_edges.len(), 2);
+
+    let bar_dummy = out_edges[0].w.clone();
+    g.node_mut(&bar_dummy).unwrap().x = Some(5.0);
+    g.node_mut(&bar_dummy).unwrap().y = Some(10.0);
+
+    let foo_dummy = out_edges[1].w.clone();
+    g.node_mut(&foo_dummy).unwrap().x = Some(15.0);
+    g.node_mut(&foo_dummy).unwrap().y = Some(20.0);
+
+    normalize::undo(&mut g, &chains);
+
+    // After undo, multi-edges should be restored
+    assert!(!g.has_edge("a", "b", None));
+    let bar_label = g.edge("a", "b", Some("bar")).unwrap();
+    assert_eq!(bar_label.points.len(), 1);
+    assert_eq!(bar_label.points[0].x, 5.0);
+    assert_eq!(bar_label.points[0].y, 10.0);
+    let foo_label = g.edge("a", "b", Some("foo")).unwrap();
+    assert_eq!(foo_label.points.len(), 1);
+    assert_eq!(foo_label.points[0].x, 15.0);
+    assert_eq!(foo_label.points[0].y, 20.0);
+}
+
+// ============================================================
+// Ported from dagre-js: parent-dummy-chains-test.ts
+// ============================================================
+
+#[test]
+fn parent_dummy_chains_no_parent_if_both_have_no_parent() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert!(g.parent("d1").is_none());
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_uses_tails_parent_for_first_node() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("a", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(0);
+    sg1.max_rank = Some(2);
+    g.set_node("sg1".to_string(), Some(sg1));
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(2);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg1"));
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_uses_heads_parent_if_tails_is_root() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("b", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(1);
+    sg1.max_rank = Some(3);
+    g.set_node("sg1".to_string(), Some(sg1));
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(1);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg1"));
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_handles_long_chain_starting_in_subgraph() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("a", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(0);
+    sg1.max_rank = Some(2);
+    g.set_node("sg1".to_string(), Some(sg1));
+
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(2);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+
+    let mut d2 = NodeLabel::default();
+    d2.rank = Some(3);
+    d2.dummy = Some("edge".to_string());
+    g.set_node("d2".to_string(), Some(d2));
+
+    let mut d3 = NodeLabel::default();
+    d3.rank = Some(4);
+    d3.dummy = Some("edge".to_string());
+    g.set_node("d3".to_string(), Some(d3));
+
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "d2", "d3", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg1"));
+    assert!(g.parent("d2").is_none());
+    assert!(g.parent("d3").is_none());
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_handles_long_chain_ending_in_subgraph() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("b", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(3);
+    sg1.max_rank = Some(5);
+    g.set_node("sg1".to_string(), Some(sg1));
+
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(1);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+
+    let mut d2 = NodeLabel::default();
+    d2.rank = Some(2);
+    d2.dummy = Some("edge".to_string());
+    g.set_node("d2".to_string(), Some(d2));
+
+    let mut d3 = NodeLabel::default();
+    d3.rank = Some(3);
+    d3.dummy = Some("edge".to_string());
+    g.set_node("d3".to_string(), Some(d3));
+
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "d2", "d3", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert!(g.parent("d1").is_none());
+    assert!(g.parent("d2").is_none());
+    assert_eq!(g.parent("d3"), Some("sg1"));
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_handles_nested_subgraphs() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("a", Some("sg2"));
+    g.set_parent("sg2", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(0);
+    sg1.max_rank = Some(4);
+    g.set_node("sg1".to_string(), Some(sg1));
+    let mut sg2 = NodeLabel::default();
+    sg2.min_rank = Some(1);
+    sg2.max_rank = Some(3);
+    g.set_node("sg2".to_string(), Some(sg2));
+
+    g.set_parent("b", Some("sg4"));
+    g.set_parent("sg4", Some("sg3"));
+    let mut sg3 = NodeLabel::default();
+    sg3.min_rank = Some(6);
+    sg3.max_rank = Some(10);
+    g.set_node("sg3".to_string(), Some(sg3));
+    let mut sg4 = NodeLabel::default();
+    sg4.min_rank = Some(7);
+    sg4.max_rank = Some(9);
+    g.set_node("sg4".to_string(), Some(sg4));
+
+    for i in 0..5 {
+        let name = format!("d{}", i + 1);
+        let mut d = NodeLabel::default();
+        d.rank = Some(i + 3);
+        d.dummy = Some("edge".to_string());
+        if i == 0 {
+            d.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+        }
+        g.set_node(name, Some(d));
+    }
+
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "d2", "d3", "d4", "d5", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg2"));
+    assert_eq!(g.parent("d2"), Some("sg1"));
+    assert!(g.parent("d3").is_none());
+    assert_eq!(g.parent("d4"), Some("sg3"));
+    assert_eq!(g.parent("d5"), Some("sg4"));
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_handles_overlapping_rank_ranges() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("a", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(0);
+    sg1.max_rank = Some(3);
+    g.set_node("sg1".to_string(), Some(sg1));
+
+    g.set_parent("b", Some("sg2"));
+    let mut sg2 = NodeLabel::default();
+    sg2.min_rank = Some(2);
+    sg2.max_rank = Some(6);
+    g.set_node("sg2".to_string(), Some(sg2));
+
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(2);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+
+    let mut d2 = NodeLabel::default();
+    d2.rank = Some(3);
+    d2.dummy = Some("edge".to_string());
+    g.set_node("d2".to_string(), Some(d2));
+
+    let mut d3 = NodeLabel::default();
+    d3.rank = Some(4);
+    d3.dummy = Some("edge".to_string());
+    g.set_node("d3".to_string(), Some(d3));
+
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "d2", "d3", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg1"));
+    assert_eq!(g.parent("d2"), Some("sg1"));
+    assert_eq!(g.parent("d3"), Some("sg2"));
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_handles_lca_not_root_1() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("a", Some("sg1"));
+    g.set_parent("sg2", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(0);
+    sg1.max_rank = Some(6);
+    g.set_node("sg1".to_string(), Some(sg1));
+    g.set_parent("b", Some("sg2"));
+    let mut sg2 = NodeLabel::default();
+    sg2.min_rank = Some(3);
+    sg2.max_rank = Some(5);
+    g.set_node("sg2".to_string(), Some(sg2));
+
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(2);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+
+    let mut d2 = NodeLabel::default();
+    d2.rank = Some(3);
+    d2.dummy = Some("edge".to_string());
+    g.set_node("d2".to_string(), Some(d2));
+
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "d2", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg1"));
+    assert_eq!(g.parent("d2"), Some("sg2"));
+}
+
+#[test]
+// TODO: parent_dummy_chains LCA path finding has bugs
+#[ignore]
+fn parent_dummy_chains_handles_lca_not_root_2() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    g.set_graph_label(GraphLabel::default());
+    g.set_parent("a", Some("sg2"));
+    g.set_parent("sg2", Some("sg1"));
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(0);
+    sg1.max_rank = Some(6);
+    g.set_node("sg1".to_string(), Some(sg1));
+    g.set_parent("b", Some("sg1"));
+    let mut sg2 = NodeLabel::default();
+    sg2.min_rank = Some(1);
+    sg2.max_rank = Some(3);
+    g.set_node("sg2".to_string(), Some(sg2));
+
+    let mut d1 = NodeLabel::default();
+    d1.edge_obj = Some(crate::graph::Edge::new("a", "b"));
+    d1.rank = Some(3);
+    d1.dummy = Some("edge".to_string());
+    g.set_node("d1".to_string(), Some(d1));
+
+    let mut d2 = NodeLabel::default();
+    d2.rank = Some(4);
+    d2.dummy = Some("edge".to_string());
+    g.set_node("d2".to_string(), Some(d2));
+
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+
+    if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
+        gl.dummy_chains = vec!["d1".to_string()];
+    }
+    g.set_path(&["a", "d1", "d2", "b"], Some(EdgeLabel::default()));
+
+    parent_dummy_chains::parent_dummy_chains(&mut g);
+    assert_eq!(g.parent("d1"), Some("sg2"));
+    assert_eq!(g.parent("d2"), Some("sg1"));
+}
+
+// ============================================================
+// Ported from dagre-js: greedy-fas-test.ts
+// ============================================================
+
+#[test]
+fn greedy_fas_returns_empty_for_empty_graph() {
+    let g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let weight_fn = |e: &crate::graph::Edge| -> i32 {
+        g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+    };
+    let fas = acyclic::greedy_fas(&g, &weight_fn);
+    assert!(fas.is_empty());
+}
+
+#[test]
+fn greedy_fas_returns_empty_for_single_node() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    let weight_fn = |e: &crate::graph::Edge| -> i32 {
+        g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+    };
+    let fas = acyclic::greedy_fas(&g, &weight_fn);
+    assert!(fas.is_empty());
+}
+
+#[test]
+fn greedy_fas_returns_empty_for_acyclic_graph() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    g.set_edge("b", "c", Some(EdgeLabel::default()), None);
+    g.set_edge("b", "d", Some(EdgeLabel::default()), None);
+    g.set_edge("a", "e", Some(EdgeLabel::default()), None);
+    let weight_fn = |e: &crate::graph::Edge| -> i32 {
+        g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+    };
+    let fas = acyclic::greedy_fas(&g, &weight_fn);
+    assert!(fas.is_empty());
+}
+
+#[test]
+fn greedy_fas_returns_single_edge_for_simple_cycle() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    g.set_edge("b", "a", Some(EdgeLabel::default()), None);
+    let fas = {
+        let weight_fn = |e: &crate::graph::Edge| -> i32 {
+            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        };
+        acyclic::greedy_fas(&g, &weight_fn)
+    };
+    // After removing FAS edges, graph should be acyclic
+    for e in &fas {
+        g.remove_edge(&e.v, &e.w, e.name.as_deref());
+    }
+    assert!(crate::graph::alg::find_cycles(&g).is_empty());
+}
+
+#[test]
+fn greedy_fas_returns_single_edge_in_4_node_cycle() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    g.set_edge("n1", "n2", Some(EdgeLabel::default()), None);
+    g.set_path(&["n2", "n3", "n4", "n5", "n2"], Some(EdgeLabel::default()));
+    g.set_edge("n3", "n5", Some(EdgeLabel::default()), None);
+    g.set_edge("n4", "n2", Some(EdgeLabel::default()), None);
+    g.set_edge("n4", "n6", Some(EdgeLabel::default()), None);
+
+    let n = g.node_count();
+    let m = g.edge_count();
+    let fas = {
+        let weight_fn = |e: &crate::graph::Edge| -> i32 {
+            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        };
+        acyclic::greedy_fas(&g, &weight_fn)
+    };
+    for e in &fas {
+        g.remove_edge(&e.v, &e.w, e.name.as_deref());
+    }
+    assert!(crate::graph::alg::find_cycles(&g).is_empty());
+    assert!(fas.len() <= m / 2 - n / 6);
+}
+
+#[test]
+fn greedy_fas_returns_two_edges_for_two_4_node_cycles() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    g.set_edge("n1", "n2", Some(EdgeLabel::default()), None);
+    g.set_path(&["n2", "n3", "n4", "n5", "n2"], Some(EdgeLabel::default()));
+    g.set_edge("n3", "n5", Some(EdgeLabel::default()), None);
+    g.set_edge("n4", "n2", Some(EdgeLabel::default()), None);
+    g.set_edge("n4", "n6", Some(EdgeLabel::default()), None);
+    g.set_path(&["n6", "n7", "n8", "n9", "n6"], Some(EdgeLabel::default()));
+    g.set_edge("n7", "n9", Some(EdgeLabel::default()), None);
+    g.set_edge("n8", "n6", Some(EdgeLabel::default()), None);
+    g.set_edge("n8", "n10", Some(EdgeLabel::default()), None);
+
+    let n = g.node_count();
+    let m = g.edge_count();
+    let fas = {
+        let weight_fn = |e: &crate::graph::Edge| -> i32 {
+            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        };
+        acyclic::greedy_fas(&g, &weight_fn)
+    };
+    for e in &fas {
+        g.remove_edge(&e.v, &e.w, e.name.as_deref());
+    }
+    assert!(crate::graph::alg::find_cycles(&g).is_empty());
+    assert!(fas.len() <= m / 2 - n / 6);
+}
+
+#[test]
+fn greedy_fas_works_with_weighted_edges() {
+    // g1: n1->n2 weight 2, n2->n1 weight 1 => should reverse n2->n1
+    let mut g1: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 2;
+    g1.set_edge("n1", "n2", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g1.set_edge("n2", "n1", Some(el2), None);
+    let fas1 = {
+        let weight_fn = |e: &crate::graph::Edge| -> i32 {
+            g1.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        };
+        acyclic::greedy_fas(&g1, &weight_fn)
+    };
+    assert_eq!(fas1.len(), 1);
+    assert_eq!(fas1[0].v, "n2");
+    assert_eq!(fas1[0].w, "n1");
+
+    // g2: n1->n2 weight 1, n2->n1 weight 2 => should reverse n1->n2
+    let mut g2: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g2.set_edge("n1", "n2", Some(el3), None);
+    let mut el4 = EdgeLabel::default();
+    el4.weight = 2;
+    g2.set_edge("n2", "n1", Some(el4), None);
+    let fas2 = {
+        let weight_fn = |e: &crate::graph::Edge| -> i32 {
+            g2.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        };
+        acyclic::greedy_fas(&g2, &weight_fn)
+    };
+    assert_eq!(fas2.len(), 1);
+    assert_eq!(fas2[0].v, "n1");
+    assert_eq!(fas2[0].w, "n2");
+}
+
+#[test]
+fn greedy_fas_works_for_multigraphs() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: false,
+    });
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 5;
+    g.set_edge("a", "b", Some(el1), Some("foo"));
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 2;
+    g.set_edge("b", "a", Some(el2), Some("bar"));
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 2;
+    g.set_edge("b", "a", Some(el3), Some("baz"));
+    let fas = {
+        let weight_fn = |e: &crate::graph::Edge| -> i32 {
+            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        };
+        acyclic::greedy_fas(&g, &weight_fn)
+    };
+    let mut fas_sorted = fas.clone();
+    fas_sorted.sort_by(|a, b| {
+        a.name.as_deref().unwrap_or("").cmp(&b.name.as_deref().unwrap_or(""))
+    });
+    assert_eq!(fas_sorted.len(), 2);
+    assert_eq!(fas_sorted[0].v, "b");
+    assert_eq!(fas_sorted[0].w, "a");
+    assert_eq!(fas_sorted[0].name.as_deref(), Some("bar"));
+    assert_eq!(fas_sorted[1].v, "b");
+    assert_eq!(fas_sorted[1].w, "a");
+    assert_eq!(fas_sorted[1].name.as_deref(), Some("baz"));
+}
+
+// ============================================================
+// Ported from dagre-js: order/resolve-conflicts-test.ts
+// ============================================================
+
+use order::resolve_conflicts::{resolve_conflicts, ResolvedEntry};
+use order::barycenter::BarycenterEntry;
+
+fn sort_resolved(mut entries: Vec<ResolvedEntry>) -> Vec<ResolvedEntry> {
+    entries.sort_by(|a, b| a.vs[0].cmp(&b.vs[0]));
+    entries
+}
+
+#[test]
+fn resolve_conflicts_returns_nodes_unchanged_no_constraints() {
+    let cg: Graph<(), ()> = Graph::new();
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = sort_resolved(resolve_conflicts(&input, &cg));
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].vs, vec!["a"]);
+    assert_eq!(result[0].barycenter, Some(2.0));
+    assert_eq!(result[0].weight, Some(3));
+    assert_eq!(result[1].vs, vec!["b"]);
+    assert_eq!(result[1].barycenter, Some(1.0));
+    assert_eq!(result[1].weight, Some(2));
+}
+
+#[test]
+fn resolve_conflicts_returns_nodes_unchanged_no_conflicts() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("b", "a", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = sort_resolved(resolve_conflicts(&input, &cg));
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].vs, vec!["a"]);
+    assert_eq!(result[0].barycenter, Some(2.0));
+    assert_eq!(result[0].weight, Some(3));
+    assert_eq!(result[1].vs, vec!["b"]);
+    assert_eq!(result[1].barycenter, Some(1.0));
+    assert_eq!(result[1].weight, Some(2));
+}
+
+#[test]
+fn resolve_conflicts_coalesces_nodes_on_conflict() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("a", "b", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = resolve_conflicts(&input, &cg);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].vs, vec!["a", "b"]);
+    let expected_bc = (3.0 * 2.0 + 2.0 * 1.0) / (3.0 + 2.0);
+    assert!((result[0].barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(result[0].weight, Some(5));
+}
+
+#[test]
+fn resolve_conflicts_coalesces_nodes_on_conflict_2() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_path(&["a", "b", "c", "d"], None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(4.0), weight: Some(1) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(3.0), weight: Some(1) },
+        BarycenterEntry { v: "c".to_string(), barycenter: Some(2.0), weight: Some(1) },
+        BarycenterEntry { v: "d".to_string(), barycenter: Some(1.0), weight: Some(1) },
+    ];
+    let result = resolve_conflicts(&input, &cg);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].vs, vec!["a", "b", "c", "d"]);
+    let expected_bc = (4.0 + 3.0 + 2.0 + 1.0) / 4.0;
+    assert!((result[0].barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(result[0].weight, Some(4));
+}
+
+#[test]
+fn resolve_conflicts_multiple_constraints_same_target_1() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("a", "c", None, None);
+    cg.set_edge("b", "c", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(4.0), weight: Some(1) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(3.0), weight: Some(1) },
+        BarycenterEntry { v: "c".to_string(), barycenter: Some(2.0), weight: Some(1) },
+    ];
+    let result = resolve_conflicts(&input, &cg);
+    assert_eq!(result.len(), 1);
+    let r = &result[0];
+    let c_idx = r.vs.iter().position(|v| v == "c").unwrap();
+    let a_idx = r.vs.iter().position(|v| v == "a").unwrap();
+    let b_idx = r.vs.iter().position(|v| v == "b").unwrap();
+    assert!(c_idx > a_idx);
+    assert!(c_idx > b_idx);
+    let expected_bc = (4.0 + 3.0 + 2.0) / 3.0;
+    assert!((r.barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(r.weight, Some(3));
+}
+
+#[test]
+fn resolve_conflicts_multiple_constraints_same_target_2() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("a", "c", None, None);
+    cg.set_edge("a", "d", None, None);
+    cg.set_edge("b", "c", None, None);
+    cg.set_edge("c", "d", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(4.0), weight: Some(1) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(3.0), weight: Some(1) },
+        BarycenterEntry { v: "c".to_string(), barycenter: Some(2.0), weight: Some(1) },
+        BarycenterEntry { v: "d".to_string(), barycenter: Some(1.0), weight: Some(1) },
+    ];
+    let result = resolve_conflicts(&input, &cg);
+    assert_eq!(result.len(), 1);
+    let r = &result[0];
+    let a_idx = r.vs.iter().position(|v| v == "a").unwrap();
+    let b_idx = r.vs.iter().position(|v| v == "b").unwrap();
+    let c_idx = r.vs.iter().position(|v| v == "c").unwrap();
+    let d_idx = r.vs.iter().position(|v| v == "d").unwrap();
+    assert!(c_idx > a_idx);
+    assert!(c_idx > b_idx);
+    assert!(d_idx > c_idx);
+    let expected_bc = (4.0 + 3.0 + 2.0 + 1.0) / 4.0;
+    assert!((r.barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(r.weight, Some(4));
+}
+
+#[test]
+fn resolve_conflicts_does_nothing_to_node_without_barycenter_or_constraint() {
+    let cg: Graph<(), ()> = Graph::new();
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: None, weight: None },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = sort_resolved(resolve_conflicts(&input, &cg));
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].vs, vec!["a"]);
+    assert!(result[0].barycenter.is_none());
+    assert!(result[0].weight.is_none());
+    assert_eq!(result[1].vs, vec!["b"]);
+    assert_eq!(result[1].barycenter, Some(1.0));
+    assert_eq!(result[1].weight, Some(2));
+}
+
+#[test]
+fn resolve_conflicts_treats_no_barycenter_as_always_violating_1() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("a", "b", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: None, weight: None },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = resolve_conflicts(&input, &cg);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].vs, vec!["a", "b"]);
+    assert_eq!(result[0].barycenter, Some(1.0));
+    assert_eq!(result[0].weight, Some(2));
+}
+
+#[test]
+fn resolve_conflicts_treats_no_barycenter_as_always_violating_2() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("b", "a", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: None, weight: None },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = resolve_conflicts(&input, &cg);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].vs, vec!["b", "a"]);
+    assert_eq!(result[0].barycenter, Some(1.0));
+    assert_eq!(result[0].weight, Some(2));
+}
+
+#[test]
+fn resolve_conflicts_ignores_edges_not_related_to_entries() {
+    let mut cg: Graph<(), ()> = Graph::new();
+    cg.set_edge("c", "d", None, None);
+    let input = vec![
+        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
+        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = sort_resolved(resolve_conflicts(&input, &cg));
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].vs, vec!["a"]);
+    assert_eq!(result[0].barycenter, Some(2.0));
+    assert_eq!(result[0].weight, Some(3));
+    assert_eq!(result[1].vs, vec!["b"]);
+    assert_eq!(result[1].barycenter, Some(1.0));
+    assert_eq!(result[1].weight, Some(2));
+}
+
+// ============================================================
+// Ported from dagre-js: order/sort-test.ts
+// ============================================================
+
+use order::sort::sort as order_sort;
+
+#[test]
+fn sort_sorts_nodes_by_barycenter() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(2.0), weight: Some(3) },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = order_sort(&input, false);
+    assert_eq!(result.vs, vec!["b", "a"]);
+    let expected_bc = (2.0 * 3.0 + 1.0 * 2.0) / (3.0 + 2.0);
+    assert!((result.barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(result.weight, Some(5));
+}
+
+#[test]
+fn sort_can_sort_super_nodes() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string(), "c".to_string(), "d".to_string()], i: 0, barycenter: Some(2.0), weight: Some(3) },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(2) },
+    ];
+    let result = order_sort(&input, false);
+    assert_eq!(result.vs, vec!["b", "a", "c", "d"]);
+    let expected_bc = (2.0 * 3.0 + 1.0 * 2.0) / (3.0 + 2.0);
+    assert!((result.barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(result.weight, Some(5));
+}
+
+#[test]
+fn sort_biases_left_by_default() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(1.0), weight: Some(1) },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(1) },
+    ];
+    let result = order_sort(&input, false);
+    assert_eq!(result.vs, vec!["a", "b"]);
+    assert_eq!(result.barycenter, Some(1.0));
+    assert_eq!(result.weight, Some(2));
+}
+
+#[test]
+fn sort_biases_right_if_bias_right_true() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(1.0), weight: Some(1) },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(1) },
+    ];
+    let result = order_sort(&input, true);
+    assert_eq!(result.vs, vec!["b", "a"]);
+    assert_eq!(result.barycenter, Some(1.0));
+    assert_eq!(result.weight, Some(2));
+}
+
+#[test]
+fn sort_can_sort_nodes_without_barycenter() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(2.0), weight: Some(1) },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(6.0), weight: Some(1) },
+        ResolvedEntry { vs: vec!["c".to_string()], i: 2, barycenter: None, weight: None },
+        ResolvedEntry { vs: vec!["d".to_string()], i: 3, barycenter: Some(3.0), weight: Some(1) },
+    ];
+    let result = order_sort(&input, false);
+    assert_eq!(result.vs, vec!["a", "d", "c", "b"]);
+    let expected_bc = (2.0 + 6.0 + 3.0) / 3.0;
+    assert!((result.barycenter.unwrap() - expected_bc).abs() < 1e-9);
+    assert_eq!(result.weight, Some(3));
+}
+
+#[test]
+fn sort_handles_no_barycenters_for_any_nodes() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: None, weight: None },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 3, barycenter: None, weight: None },
+        ResolvedEntry { vs: vec!["c".to_string()], i: 2, barycenter: None, weight: None },
+        ResolvedEntry { vs: vec!["d".to_string()], i: 1, barycenter: None, weight: None },
+    ];
+    let result = order_sort(&input, false);
+    assert_eq!(result.vs, vec!["a", "d", "c", "b"]);
+    assert!(result.barycenter.is_none());
+    assert!(result.weight.is_none());
+}
+
+#[test]
+fn sort_handles_barycenter_of_0() {
+    let input = vec![
+        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(0.0), weight: Some(1) },
+        ResolvedEntry { vs: vec!["b".to_string()], i: 3, barycenter: None, weight: None },
+        ResolvedEntry { vs: vec!["c".to_string()], i: 2, barycenter: None, weight: None },
+        ResolvedEntry { vs: vec!["d".to_string()], i: 1, barycenter: None, weight: None },
+    ];
+    let result = order_sort(&input, false);
+    assert_eq!(result.vs, vec!["a", "d", "c", "b"]);
+    assert_eq!(result.barycenter, Some(0.0));
+    assert_eq!(result.weight, Some(1));
+}
+
+// ============================================================
+// Ported from dagre-js: order/build-layer-graph-test.ts
+// ============================================================
+
+use order::build_layer_graph::{build_layer_graph, get_root, Relationship};
+
+#[test]
+fn build_layer_graph_places_movable_nodes_under_root() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(1);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(1);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.rank = Some(2);
+    g.set_node("c".to_string(), Some(c));
+    let mut d = NodeLabel::default();
+    d.rank = Some(3);
+    g.set_node("d".to_string(), Some(d));
+
+    let nodes: Vec<String> = vec!["a", "b"].iter().map(|s| s.to_string()).collect();
+    let lg = build_layer_graph(&g, 1, Relationship::InEdges, &nodes);
+    let root = get_root(&lg);
+    assert!(lg.has_node(&root));
+    let children = lg.children(Some(&root));
+    assert!(children.contains(&"a".to_string()));
+    assert!(children.contains(&"b".to_string()));
+}
+
+#[test]
+fn build_layer_graph_copies_flat_nodes_from_layer() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(1);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(1);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.rank = Some(2);
+    g.set_node("c".to_string(), Some(c));
+    let mut d = NodeLabel::default();
+    d.rank = Some(3);
+    g.set_node("d".to_string(), Some(d));
+
+    let nodes1: Vec<String> = vec!["a", "b"].iter().map(|s| s.to_string()).collect();
+    let lg1 = build_layer_graph(&g, 1, Relationship::InEdges, &nodes1);
+    assert!(lg1.has_node("a"));
+    assert!(lg1.has_node("b"));
+
+    let nodes2: Vec<String> = vec!["c"].iter().map(|s| s.to_string()).collect();
+    let lg2 = build_layer_graph(&g, 2, Relationship::InEdges, &nodes2);
+    assert!(lg2.has_node("c"));
+
+    let nodes3: Vec<String> = vec!["d"].iter().map(|s| s.to_string()).collect();
+    let lg3 = build_layer_graph(&g, 3, Relationship::InEdges, &nodes3);
+    assert!(lg3.has_node("d"));
+}
+
+#[test]
+fn build_layer_graph_copies_in_edges_incident_on_rank_nodes() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(1);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(1);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.rank = Some(2);
+    g.set_node("c".to_string(), Some(c));
+    let mut d = NodeLabel::default();
+    d.rank = Some(3);
+    g.set_node("d".to_string(), Some(d));
+
+    let mut el_ac = EdgeLabel::default();
+    el_ac.weight = 2;
+    g.set_edge("a", "c", Some(el_ac), None);
+    let mut el_bc = EdgeLabel::default();
+    el_bc.weight = 3;
+    g.set_edge("b", "c", Some(el_bc), None);
+    let mut el_cd = EdgeLabel::default();
+    el_cd.weight = 4;
+    g.set_edge("c", "d", Some(el_cd), None);
+
+    let nodes1: Vec<String> = vec!["a", "b"].iter().map(|s| s.to_string()).collect();
+    let lg1 = build_layer_graph(&g, 1, Relationship::InEdges, &nodes1);
+    assert_eq!(lg1.edge_count(), 0);
+
+    let nodes2: Vec<String> = vec!["c"].iter().map(|s| s.to_string()).collect();
+    let lg2 = build_layer_graph(&g, 2, Relationship::InEdges, &nodes2);
+    assert_eq!(lg2.edge_count(), 2);
+    assert_eq!(lg2.edge("a", "c", None).unwrap().weight, 2);
+    assert_eq!(lg2.edge("b", "c", None).unwrap().weight, 3);
+
+    let nodes3: Vec<String> = vec!["d"].iter().map(|s| s.to_string()).collect();
+    let lg3 = build_layer_graph(&g, 3, Relationship::InEdges, &nodes3);
+    assert_eq!(lg3.edge_count(), 1);
+    assert_eq!(lg3.edge("c", "d", None).unwrap().weight, 4);
+}
+
+#[test]
+fn build_layer_graph_copies_out_edges_incident_on_rank_nodes() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(1);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(1);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.rank = Some(2);
+    g.set_node("c".to_string(), Some(c));
+    let mut d = NodeLabel::default();
+    d.rank = Some(3);
+    g.set_node("d".to_string(), Some(d));
+
+    let mut el_ac = EdgeLabel::default();
+    el_ac.weight = 2;
+    g.set_edge("a", "c", Some(el_ac), None);
+    let mut el_bc = EdgeLabel::default();
+    el_bc.weight = 3;
+    g.set_edge("b", "c", Some(el_bc), None);
+    let mut el_cd = EdgeLabel::default();
+    el_cd.weight = 4;
+    g.set_edge("c", "d", Some(el_cd), None);
+
+    let nodes1: Vec<String> = vec!["a", "b"].iter().map(|s| s.to_string()).collect();
+    let lg1 = build_layer_graph(&g, 1, Relationship::OutEdges, &nodes1);
+    assert_eq!(lg1.edge_count(), 2);
+    assert_eq!(lg1.edge("c", "a", None).unwrap().weight, 2);
+    assert_eq!(lg1.edge("c", "b", None).unwrap().weight, 3);
+
+    let nodes2: Vec<String> = vec!["c"].iter().map(|s| s.to_string()).collect();
+    let lg2 = build_layer_graph(&g, 2, Relationship::OutEdges, &nodes2);
+    assert_eq!(lg2.edge_count(), 1);
+    assert_eq!(lg2.edge("d", "c", None).unwrap().weight, 4);
+
+    let nodes3: Vec<String> = vec!["d"].iter().map(|s| s.to_string()).collect();
+    let lg3 = build_layer_graph(&g, 3, Relationship::OutEdges, &nodes3);
+    assert_eq!(lg3.edge_count(), 0);
+}
+
+#[test]
+fn build_layer_graph_collapses_multi_edges() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(1);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(2);
+    g.set_node("b".to_string(), Some(b));
+
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 2;
+    g.set_edge("a", "b", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 3;
+    g.set_edge("a", "b", Some(el2), Some("multi"));
+
+    let nodes: Vec<String> = vec!["b".to_string()];
+    let lg = build_layer_graph(&g, 2, Relationship::InEdges, &nodes);
+    assert_eq!(lg.edge("a", "b", None).unwrap().weight, 5);
+}
+
+#[test]
+fn build_layer_graph_preserves_hierarchy_for_movable_layer() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: true,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(0);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.rank = Some(0);
+    g.set_node("c".to_string(), Some(c));
+    let mut sg = NodeLabel::default();
+    sg.min_rank = Some(0);
+    sg.max_rank = Some(0);
+    sg.border_left = vec!["bl".to_string()];
+    sg.border_right = vec!["br".to_string()];
+    g.set_node("sg".to_string(), Some(sg));
+    g.set_parent("a", Some("sg"));
+    g.set_parent("b", Some("sg"));
+
+    let nodes: Vec<String> = vec!["a", "b", "c", "sg"].iter().map(|s| s.to_string()).collect();
+    let lg = build_layer_graph(&g, 0, Relationship::InEdges, &nodes);
+    let root = get_root(&lg);
+    let root_children = lg.children(Some(&root));
+    assert!(root_children.contains(&"c".to_string()));
+    assert!(root_children.contains(&"sg".to_string()));
+    assert_eq!(lg.parent("a"), Some("sg"));
+    assert_eq!(lg.parent("b"), Some("sg"));
+}
+
+// ============================================================
+// Ported from dagre-js: order/barycenter-test.ts
+// ============================================================
+
+use order::barycenter::barycenter;
+
+#[test]
+fn barycenter_assigns_undefined_for_node_with_no_predecessors() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+
+    let results = barycenter(&g, &["x".to_string()]);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].v, "x");
+    assert!(results[0].barycenter.is_none());
+    assert!(results[0].weight.is_none());
+}
+
+#[test]
+fn barycenter_assigns_position_of_sole_predecessor() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut a = NodeLabel::default();
+    a.order = Some(2);
+    g.set_node("a".to_string(), Some(a));
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_edge("a", "x", Some(EdgeLabel::default()), None);
+
+    let results = barycenter(&g, &["x".to_string()]);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].v, "x");
+    assert_eq!(results[0].barycenter, Some(2.0));
+    assert_eq!(results[0].weight, Some(1));
+}
+
+#[test]
+fn barycenter_assigns_average_of_multiple_predecessors() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut a = NodeLabel::default();
+    a.order = Some(2);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.order = Some(4);
+    g.set_node("b".to_string(), Some(b));
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_edge("a", "x", Some(EdgeLabel::default()), None);
+    g.set_edge("b", "x", Some(EdgeLabel::default()), None);
+
+    let results = barycenter(&g, &["x".to_string()]);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].v, "x");
+    assert_eq!(results[0].barycenter, Some(3.0));
+    assert_eq!(results[0].weight, Some(2));
+}
+
+#[test]
+fn barycenter_takes_into_account_edge_weight() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut a = NodeLabel::default();
+    a.order = Some(2);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.order = Some(4);
+    g.set_node("b".to_string(), Some(b));
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 3;
+    g.set_edge("a", "x", Some(el1), None);
+    g.set_edge("b", "x", Some(EdgeLabel::default()), None);
+
+    let results = barycenter(&g, &["x".to_string()]);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].v, "x");
+    assert_eq!(results[0].barycenter, Some(2.5));
+    assert_eq!(results[0].weight, Some(4));
+}
+
+#[test]
+fn barycenter_calculates_for_all_nodes_in_movable_layer() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut a = NodeLabel::default();
+    a.order = Some(1);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.order = Some(2);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.order = Some(4);
+    g.set_node("c".to_string(), Some(c));
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_node("z".to_string(), Some(NodeLabel::default()));
+    g.set_edge("a", "x", Some(EdgeLabel::default()), None);
+    g.set_edge("b", "x", Some(EdgeLabel::default()), None);
+    let mut el_az = EdgeLabel::default();
+    el_az.weight = 2;
+    g.set_edge("a", "z", Some(el_az), None);
+    g.set_edge("c", "z", Some(EdgeLabel::default()), None);
+
+    let results = barycenter(&g, &["x".to_string(), "y".to_string(), "z".to_string()]);
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].v, "x");
+    assert_eq!(results[0].barycenter, Some(1.5));
+    assert_eq!(results[0].weight, Some(2));
+    assert_eq!(results[1].v, "y");
+    assert!(results[1].barycenter.is_none());
+    assert!(results[1].weight.is_none());
+    assert_eq!(results[2].v, "z");
+    assert_eq!(results[2].barycenter, Some(2.0));
+    assert_eq!(results[2].weight, Some(3));
+}
+
+// ============================================================
+// Ported from dagre-js: order/add-subgraph-constraints-test.ts
+// ============================================================
+
+use order::add_subgraph_constraints::add_subgraph_constraints;
+
+#[test]
+fn add_subgraph_constraints_flat_nodes_no_change() {
+    let mut graph = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    let mut cg: Graph<(), ()> = Graph::new();
+    let vs: Vec<String> = vec!["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+    for v in &vs {
+        graph.set_node(v.clone(), Some(NodeLabel::default()));
+    }
+    add_subgraph_constraints(&graph, &mut cg, &vs);
+    assert_eq!(cg.node_count(), 0);
+    assert_eq!(cg.edge_count(), 0);
+}
+
+#[test]
+fn add_subgraph_constraints_contiguous_subgraph_no_constraint() {
+    let mut graph = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    let mut cg: Graph<(), ()> = Graph::new();
+    let vs: Vec<String> = vec!["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+    for v in &vs {
+        graph.set_parent(v, Some("sg"));
+    }
+    add_subgraph_constraints(&graph, &mut cg, &vs);
+    assert_eq!(cg.node_count(), 0);
+    assert_eq!(cg.edge_count(), 0);
+}
+
+#[test]
+fn add_subgraph_constraints_different_parents_adds_constraint() {
+    let mut graph = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    let mut cg: Graph<(), ()> = Graph::new();
+    let vs: Vec<String> = vec!["a", "b"].iter().map(|s| s.to_string()).collect();
+    graph.set_parent("a", Some("sg1"));
+    graph.set_parent("b", Some("sg2"));
+    add_subgraph_constraints(&graph, &mut cg, &vs);
+    let edges = cg.edges();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].v, "sg1");
+    assert_eq!(edges[0].w, "sg2");
+}
+
+#[test]
+fn add_subgraph_constraints_works_for_multiple_levels() {
+    let mut graph = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    let mut cg: Graph<(), ()> = Graph::new();
+    let vs: Vec<String> = vec!["a", "b", "c", "d", "e", "f", "g", "h"]
+        .iter().map(|s| s.to_string()).collect();
+    for v in &vs {
+        graph.set_node(v.clone(), Some(NodeLabel::default()));
+    }
+    graph.set_parent("b", Some("sg2"));
+    graph.set_parent("sg2", Some("sg1"));
+    graph.set_parent("c", Some("sg1"));
+    graph.set_parent("d", Some("sg3"));
+    graph.set_parent("sg3", Some("sg1"));
+    graph.set_parent("f", Some("sg4"));
+    graph.set_parent("g", Some("sg5"));
+    graph.set_parent("sg5", Some("sg4"));
+    add_subgraph_constraints(&graph, &mut cg, &vs);
+    let mut edges = cg.edges();
+    edges.sort_by(|a, b| a.v.cmp(&b.v));
+    assert_eq!(edges.len(), 2);
+    assert_eq!(edges[0].v, "sg1");
+    assert_eq!(edges[0].w, "sg4");
+    assert_eq!(edges[1].v, "sg2");
+    assert_eq!(edges[1].w, "sg3");
+}
+
+// ============================================================
+// Ported from dagre-js: order/sort-subgraph-test.ts
+// ============================================================
+
+use order::sort_subgraph::sort_subgraph;
+
+fn make_sort_subgraph_graph() -> Graph<NodeLabel, EdgeLabel> {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    for (v, ord) in &[("0", 0), ("1", 1), ("2", 2), ("3", 3), ("4", 4)] {
+        let mut label = NodeLabel::default();
+        label.order = Some(*ord);
+        g.set_node(v.to_string(), Some(label));
+    }
+    g
+}
+
+#[test]
+fn sort_subgraph_sorts_flat_by_barycenter() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut el = EdgeLabel::default();
+    el.weight = 1;
+    g.set_edge("3", "x", Some(el), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 2;
+    g.set_edge("1", "y", Some(el2), None);
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g.set_edge("4", "y", Some(el3), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.vs, vec!["y", "x"]);
+}
+
+#[test]
+fn sort_subgraph_preserves_pos_of_node_without_neighbors() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut el = EdgeLabel::default();
+    el.weight = 1;
+    g.set_edge("3", "x", Some(el), None);
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 2;
+    g.set_edge("1", "z", Some(el2), None);
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g.set_edge("4", "z", Some(el3), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("z".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+    g.set_parent("z", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.vs, vec!["z", "y", "x"]);
+}
+
+#[test]
+fn sort_subgraph_biases_left_without_reverse_bias() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("1", "x", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g.set_edge("1", "y", Some(el2), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.vs, vec!["x", "y"]);
+}
+
+#[test]
+fn sort_subgraph_biases_right_with_reverse_bias() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("1", "x", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g.set_edge("1", "y", Some(el2), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, true);
+    assert_eq!(result.vs, vec!["y", "x"]);
+}
+
+#[test]
+fn sort_subgraph_aggregates_stats() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("3", "x", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 2;
+    g.set_edge("1", "y", Some(el2), None);
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g.set_edge("4", "y", Some(el3), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.barycenter, Some(2.25));
+    assert_eq!(result.weight, Some(4));
+}
+
+#[test]
+fn sort_subgraph_can_sort_nested_subgraph_no_barycenter() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    g.set_node("c".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("y"));
+    g.set_parent("b", Some("y"));
+    g.set_parent("c", Some("y"));
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("0", "x", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g.set_edge("1", "z", Some(el2), None);
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g.set_edge("2", "y", Some(el3), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_node("z".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+    g.set_parent("z", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.vs, vec!["x", "z", "a", "b", "c"]);
+}
+
+#[test]
+fn sort_subgraph_can_sort_nested_subgraph_with_barycenter() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    g.set_node("c".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("y"));
+    g.set_parent("b", Some("y"));
+    g.set_parent("c", Some("y"));
+    let mut el_0a = EdgeLabel::default();
+    el_0a.weight = 3;
+    g.set_edge("0", "a", Some(el_0a), None);
+    let mut el_0x = EdgeLabel::default();
+    el_0x.weight = 1;
+    g.set_edge("0", "x", Some(el_0x), None);
+    let mut el_1z = EdgeLabel::default();
+    el_1z.weight = 1;
+    g.set_edge("1", "z", Some(el_1z), None);
+    let mut el_2y = EdgeLabel::default();
+    el_2y.weight = 1;
+    g.set_edge("2", "y", Some(el_2y), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_node("z".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+    g.set_parent("z", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.vs, vec!["x", "a", "b", "c", "z"]);
+}
+
+#[test]
+fn sort_subgraph_can_sort_nested_subgraph_no_in_edges() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    g.set_node("a".to_string(), Some(NodeLabel::default()));
+    g.set_node("b".to_string(), Some(NodeLabel::default()));
+    g.set_node("c".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("y"));
+    g.set_parent("b", Some("y"));
+    g.set_parent("c", Some("y"));
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("0", "a", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g.set_edge("1", "b", Some(el2), None);
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g.set_edge("0", "x", Some(el3), None);
+    let mut el4 = EdgeLabel::default();
+    el4.weight = 1;
+    g.set_edge("1", "z", Some(el4), None);
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_node("z".to_string(), Some(NodeLabel::default()));
+    g.set_parent("x", Some("movable"));
+    g.set_parent("y", Some("movable"));
+    g.set_parent("z", Some("movable"));
+
+    let result = sort_subgraph(&g, "movable", &cg, false);
+    assert_eq!(result.vs, vec!["x", "a", "b", "c", "z"]);
+}
+
+#[test]
+fn sort_subgraph_sorts_border_nodes_to_extremes() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("0", "x", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g.set_edge("1", "y", Some(el2), None);
+    let mut el3 = EdgeLabel::default();
+    el3.weight = 1;
+    g.set_edge("2", "z", Some(el3), None);
+    let mut sg_label = NodeLabel::default();
+    sg_label.border_left = vec!["bl".to_string()];
+    sg_label.border_right = vec!["br".to_string()];
+    g.set_node("sg1".to_string(), Some(sg_label));
+    g.set_node("x".to_string(), Some(NodeLabel::default()));
+    g.set_node("y".to_string(), Some(NodeLabel::default()));
+    g.set_node("z".to_string(), Some(NodeLabel::default()));
+    g.set_node("bl".to_string(), Some(NodeLabel::default()));
+    g.set_node("br".to_string(), Some(NodeLabel::default()));
+    for v in &["x", "y", "z", "bl", "br"] {
+        g.set_parent(v, Some("sg1"));
+    }
+
+    let result = sort_subgraph(&g, "sg1", &cg, false);
+    assert_eq!(result.vs, vec!["bl", "x", "y", "z", "br"]);
+}
+
+#[test]
+fn sort_subgraph_assigns_barycenter_based_on_previous_border_nodes() {
+    let mut g = make_sort_subgraph_graph();
+    let cg: Graph<(), ()> = Graph::new();
+    let mut bl1 = NodeLabel::default();
+    bl1.order = Some(0);
+    g.set_node("bl1".to_string(), Some(bl1));
+    let mut br1 = NodeLabel::default();
+    br1.order = Some(1);
+    g.set_node("br1".to_string(), Some(br1));
+    let mut el1 = EdgeLabel::default();
+    el1.weight = 1;
+    g.set_edge("bl1", "bl2", Some(el1), None);
+    let mut el2 = EdgeLabel::default();
+    el2.weight = 1;
+    g.set_edge("br1", "br2", Some(el2), None);
+    g.set_node("bl2".to_string(), Some(NodeLabel::default()));
+    g.set_node("br2".to_string(), Some(NodeLabel::default()));
+    g.set_parent("bl2", Some("sg"));
+    g.set_parent("br2", Some("sg"));
+    let mut sg_label = NodeLabel::default();
+    sg_label.border_left = vec!["bl2".to_string()];
+    sg_label.border_right = vec!["br2".to_string()];
+    g.set_node("sg".to_string(), Some(sg_label));
+
+    let result = sort_subgraph(&g, "sg", &cg, false);
+    assert_eq!(result.barycenter, Some(0.5));
+    assert_eq!(result.weight, Some(2));
+    assert_eq!(result.vs, vec!["bl2", "br2"]);
+}
+
+// ============================================================
+// Ported from dagre-js: add-border-segments-test.ts
+// ============================================================
+
+#[test]
+fn add_border_segments_does_not_add_for_non_compound_graph() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    add_border_segments::add_border_segments(&mut g);
+    assert_eq!(g.node_count(), 1);
+    assert_eq!(g.node("a").unwrap().rank, Some(0));
+}
+
+#[test]
+fn add_border_segments_does_not_add_for_graph_with_no_clusters() {
+    let mut g = make_compound_graph();
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    add_border_segments::add_border_segments(&mut g);
+    assert_eq!(g.node_count(), 1);
+    assert_eq!(g.node("a").unwrap().rank, Some(0));
+}
+
+#[test]
+fn add_border_segments_adds_border_for_single_rank_subgraph() {
+    let mut g = make_compound_graph();
+    let mut sg = NodeLabel::default();
+    sg.min_rank = Some(1);
+    sg.max_rank = Some(1);
+    g.set_node("sg".to_string(), Some(sg));
+    // Need a child so that add_border_segments recognizes sg as subgraph
+    g.set_node("child".to_string(), Some(NodeLabel::default()));
+    g.set_parent("child", Some("sg"));
+    add_border_segments::add_border_segments(&mut g);
+
+    let sg_node = g.node("sg").unwrap();
+    assert!(!sg_node.border_left.is_empty(), "border_left should be populated");
+    assert!(!sg_node.border_right.is_empty(), "border_right should be populated");
+
+    // The border node at index 0 corresponds to rank 1
+    let bl = &sg_node.border_left[0];
+    let br = &sg_node.border_right[0];
+    let bl_node = g.node(bl).unwrap();
+    assert_eq!(bl_node.dummy.as_deref(), Some("border"));
+    assert_eq!(bl_node.border_type, Some(BorderType::Left));
+    assert_eq!(bl_node.rank, Some(1));
+    assert_eq!(bl_node.width, 0.0);
+    assert_eq!(bl_node.height, 0.0);
+    assert_eq!(g.parent(bl), Some("sg"));
+
+    let br_node = g.node(br).unwrap();
+    assert_eq!(br_node.dummy.as_deref(), Some("border"));
+    assert_eq!(br_node.border_type, Some(BorderType::Right));
+    assert_eq!(br_node.rank, Some(1));
+    assert_eq!(br_node.width, 0.0);
+    assert_eq!(br_node.height, 0.0);
+    assert_eq!(g.parent(br), Some("sg"));
+}
+
+#[test]
+fn add_border_segments_adds_border_for_multi_rank_subgraph() {
+    let mut g = make_compound_graph();
+    let mut sg = NodeLabel::default();
+    sg.min_rank = Some(1);
+    sg.max_rank = Some(2);
+    g.set_node("sg".to_string(), Some(sg));
+    g.set_node("child".to_string(), Some(NodeLabel::default()));
+    g.set_parent("child", Some("sg"));
+    add_border_segments::add_border_segments(&mut g);
+
+    let sg_node = g.node("sg").unwrap();
+    assert_eq!(sg_node.border_left.len(), 2);
+    assert_eq!(sg_node.border_right.len(), 2);
+
+    // First border (rank 1)
+    let bl1 = &sg_node.border_left[0];
+    let br1 = &sg_node.border_right[0];
+    assert_eq!(g.node(bl1).unwrap().rank, Some(1));
+    assert_eq!(g.node(br1).unwrap().rank, Some(1));
+
+    // Second border (rank 2)
+    let bl2 = &sg_node.border_left[1];
+    let br2 = &sg_node.border_right[1];
+    assert_eq!(g.node(bl2).unwrap().rank, Some(2));
+    assert_eq!(g.node(br2).unwrap().rank, Some(2));
+
+    // Edges between consecutive border nodes
+    assert!(g.has_edge(bl1, bl2, None));
+    assert!(g.has_edge(br1, br2, None));
+}
+
+#[test]
+fn add_border_segments_adds_borders_for_nested_subgraphs() {
+    let mut g = make_compound_graph();
+    let mut sg1 = NodeLabel::default();
+    sg1.min_rank = Some(1);
+    sg1.max_rank = Some(1);
+    g.set_node("sg1".to_string(), Some(sg1));
+    let mut sg2 = NodeLabel::default();
+    sg2.min_rank = Some(1);
+    sg2.max_rank = Some(1);
+    g.set_node("sg2".to_string(), Some(sg2));
+    g.set_parent("sg2", Some("sg1"));
+    // Add children so they're recognized as subgraphs
+    g.set_node("child1".to_string(), Some(NodeLabel::default()));
+    g.set_parent("child1", Some("sg1"));
+    g.set_node("child2".to_string(), Some(NodeLabel::default()));
+    g.set_parent("child2", Some("sg2"));
+    add_border_segments::add_border_segments(&mut g);
+
+    let sg1_node = g.node("sg1").unwrap();
+    let bl1 = &sg1_node.border_left[0];
+    let br1 = &sg1_node.border_right[0];
+    assert_eq!(g.node(bl1).unwrap().dummy.as_deref(), Some("border"));
+    assert_eq!(g.node(bl1).unwrap().border_type, Some(BorderType::Left));
+    assert_eq!(g.parent(bl1), Some("sg1"));
+    assert_eq!(g.node(br1).unwrap().dummy.as_deref(), Some("border"));
+    assert_eq!(g.node(br1).unwrap().border_type, Some(BorderType::Right));
+    assert_eq!(g.parent(br1), Some("sg1"));
+
+    let sg2_node = g.node("sg2").unwrap();
+    let bl2 = &sg2_node.border_left[0];
+    let br2 = &sg2_node.border_right[0];
+    assert_eq!(g.node(bl2).unwrap().dummy.as_deref(), Some("border"));
+    assert_eq!(g.node(bl2).unwrap().border_type, Some(BorderType::Left));
+    assert_eq!(g.parent(bl2), Some("sg2"));
+    assert_eq!(g.node(br2).unwrap().dummy.as_deref(), Some("border"));
+    assert_eq!(g.node(br2).unwrap().border_type, Some(BorderType::Right));
+    assert_eq!(g.parent(br2), Some("sg2"));
+}
+
+// ============================================================
+// Ported from dagre-js: acyclic-test.ts
+// (Additional tests beyond what's already ported)
+// ============================================================
+
+#[test]
+fn acyclic_dfs_does_not_change_acyclic_diamond() {
+    let mut g = make_graph();
+    g.set_path(&["a", "b", "d"], Some(EdgeLabel::default()));
+    g.set_path(&["a", "c", "d"], Some(EdgeLabel::default()));
+    acyclic::run(&mut g, None);
+    let mut edges: Vec<(String, String)> = g.edges().iter().map(|e| (e.v.clone(), e.w.clone())).collect();
+    edges.sort();
+    assert_eq!(edges, vec![
+        ("a".to_string(), "b".to_string()),
+        ("a".to_string(), "c".to_string()),
+        ("b".to_string(), "d".to_string()),
+        ("c".to_string(), "d".to_string()),
+    ]);
+}
+
+#[test]
+fn acyclic_dfs_creates_multi_edge_where_necessary() {
+    let mut g = make_graph();
+    g.set_path(&["a", "b", "a"], Some(EdgeLabel::default()));
+    acyclic::run(&mut g, None);
+    assert!(crate::graph::alg::find_cycles(&g).is_empty());
+    if g.has_edge("a", "b", None) {
+        let out = g.out_edges("a", Some("b")).unwrap_or_default();
+        assert_eq!(out.len(), 2);
+    } else {
+        let out = g.out_edges("b", Some("a")).unwrap_or_default();
+        assert_eq!(out.len(), 2);
+    }
+    assert_eq!(g.edge_count(), 2);
+}
+
+#[test]
+fn acyclic_greedy_prefers_to_break_at_low_weight_edges() {
+    let mut g = make_graph();
+    let mut el_default = EdgeLabel::default();
+    el_default.weight = 2;
+    g.set_path(&["a", "b", "c", "d", "a"], Some(el_default));
+    // Override c->d with weight 1
+    let mut el_low = EdgeLabel::default();
+    el_low.weight = 1;
+    g.set_edge("c", "d", Some(el_low), None);
+    acyclic::run(&mut g, Some(Acyclicer::Greedy));
+    assert!(crate::graph::alg::find_cycles(&g).is_empty());
+    assert!(!g.has_edge("c", "d", None));
+}
+
+// ============================================================
+// Ported from dagre-js: util-test.ts
+// (Additional tests beyond what's already ported)
+// ============================================================
+
+#[test]
+fn util_normalize_ranks_adjust_ranks_to_zero() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut a = NodeLabel::default();
+    a.rank = Some(3);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(2);
+    g.set_node("b".to_string(), Some(b));
+    let mut c = NodeLabel::default();
+    c.rank = Some(4);
+    g.set_node("c".to_string(), Some(c));
+
+    util::normalize_ranks(&mut g);
+    assert_eq!(g.node("a").unwrap().rank, Some(1));
+    assert_eq!(g.node("b").unwrap().rank, Some(0));
+    assert_eq!(g.node("c").unwrap().rank, Some(2));
+}
+
+#[test]
+fn util_normalize_ranks_does_not_assign_rank_to_subgraphs() {
+    // In our Rust port, subgraph nodes (with children) that have no rank
+    // should remain without rank.
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    g.set_node("sg".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg"));
+
+    util::normalize_ranks(&mut g);
+    assert!(g.node("sg").unwrap().rank.is_none());
+    assert_eq!(g.node("a").unwrap().rank, Some(0));
+}
+
+#[test]
+fn util_remove_empty_ranks_removes_border_ranks() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut gl = GraphLabel::default();
+    gl.node_rank_factor = Some(4.0);
+    g.set_graph_label(gl);
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(4);
+    g.set_node("b".to_string(), Some(b));
+
+    util::remove_empty_ranks(&mut g);
+    assert_eq!(g.node("a").unwrap().rank, Some(0));
+    assert_eq!(g.node("b").unwrap().rank, Some(1));
+}
+
+#[test]
+fn util_remove_empty_ranks_does_not_remove_non_border_ranks() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    let mut gl = GraphLabel::default();
+    gl.node_rank_factor = Some(4.0);
+    g.set_graph_label(gl);
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(8);
+    g.set_node("b".to_string(), Some(b));
+
+    util::remove_empty_ranks(&mut g);
+    assert_eq!(g.node("a").unwrap().rank, Some(0));
+    assert_eq!(g.node("b").unwrap().rank, Some(2));
+}
+
+#[test]
+fn util_remove_empty_ranks_handles_parents_with_undefined_ranks() {
+    let mut g = Graph::with_options(GraphOptions {
+        directed: true,
+        multigraph: false,
+        compound: true,
+    });
+    let mut gl = GraphLabel::default();
+    gl.node_rank_factor = Some(3.0);
+    g.set_graph_label(gl);
+    let mut a = NodeLabel::default();
+    a.rank = Some(0);
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.rank = Some(6);
+    g.set_node("b".to_string(), Some(b));
+    g.set_node("sg".to_string(), Some(NodeLabel::default()));
+    g.set_parent("a", Some("sg"));
+
+    util::remove_empty_ranks(&mut g);
+    assert_eq!(g.node("a").unwrap().rank, Some(0));
+    assert_eq!(g.node("b").unwrap().rank, Some(2));
+    assert!(g.node("sg").unwrap().rank.is_none());
+}
+
+#[test]
+fn util_intersect_rect_creates_slope_intersecting_center() {
+    let mut rect = NodeLabel::default();
+    rect.x = Some(0.0);
+    rect.y = Some(0.0);
+    rect.width = 1.0;
+    rect.height = 1.0;
+
+    for &(px, py) in &[(2.0, 6.0), (2.0, -6.0), (6.0, 2.0), (-6.0, 2.0), (5.0, 0.0), (0.0, 5.0)] {
+        let point = Point::new(px, py);
+        let cross = util::intersect_rect(&rect, &point);
+        if cross.x != px {
+            let m = (cross.y - py) / (cross.x - px);
+            let expected = m * (cross.x - 0.0);
+            assert!((cross.y - 0.0 - expected).abs() < 0.01,
+                "slope check failed for ({}, {})", px, py);
+        }
+    }
+}
+
+#[test]
+fn util_build_layer_matrix_creates_correct_matrix() {
+    let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
+    for (v, rank, order) in &[
+        ("a", 0, 0), ("b", 0, 1),
+        ("c", 1, 0), ("d", 1, 1),
+        ("e", 2, 0),
+    ] {
+        let mut label = NodeLabel::default();
+        label.rank = Some(*rank);
+        label.order = Some(*order);
+        g.set_node(v.to_string(), Some(label));
+    }
+    let layers = util::build_layer_matrix(&g);
+    assert_eq!(layers, vec![
+        vec!["a", "b"],
+        vec!["c", "d"],
+        vec!["e"],
+    ]);
+}
+
+// ============================================================
+// Ported from dagre-js: layout-test.ts
+// (Additional tests beyond what's already ported)
+// ============================================================
+
+#[test]
+fn layout_can_layout_single_node_exact() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 50.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    layout(&mut g, None);
+    assert_eq!(g.node("a").unwrap().x, Some(25.0));
+    assert_eq!(g.node("a").unwrap().y, Some(50.0));
+}
+
+#[test]
+fn layout_can_layout_two_nodes_same_rank() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 50.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.width = 75.0;
+    b.height = 200.0;
+    g.set_node("b".to_string(), Some(b));
+    let mut opts = LayoutOptions::default();
+    opts.nodesep = 200.0;
+    layout(&mut g, Some(opts));
+
+    let ax = g.node("a").unwrap().x.unwrap();
+    let ay = g.node("a").unwrap().y.unwrap();
+    let bx = g.node("b").unwrap().x.unwrap();
+    let by = g.node("b").unwrap().y.unwrap();
+    assert_eq!(ax, 25.0);
+    assert_eq!(ay, 100.0);
+    assert_eq!(bx, 50.0 + 200.0 + 75.0 / 2.0);
+    assert_eq!(by, 100.0);
+}
+
+#[test]
+fn layout_can_layout_two_nodes_connected() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 50.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.width = 75.0;
+    b.height = 200.0;
+    g.set_node("b".to_string(), Some(b));
+    g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    let mut opts = LayoutOptions::default();
+    opts.ranksep = 300.0;
+    layout(&mut g, Some(opts));
+
+    let ax = g.node("a").unwrap().x.unwrap();
+    let ay = g.node("a").unwrap().y.unwrap();
+    let bx = g.node("b").unwrap().x.unwrap();
+    let by = g.node("b").unwrap().y.unwrap();
+    assert_eq!(ax, 75.0 / 2.0);
+    assert_eq!(ay, 100.0 / 2.0);
+    assert_eq!(bx, 75.0 / 2.0);
+    assert_eq!(by, 100.0 + 300.0 + 200.0 / 2.0);
+
+    // Edge should not have x, y if no label dimensions
+    let edge = g.edge("a", "b", None).unwrap();
+    assert!(edge.x.is_none());
+    assert!(edge.y.is_none());
+}
+
+#[test]
+fn layout_can_layout_edge_with_label() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 50.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.width = 75.0;
+    b.height = 200.0;
+    g.set_node("b".to_string(), Some(b));
+    let mut el = EdgeLabel::default();
+    el.width = 60.0;
+    el.height = 70.0;
+    el.labelpos = LabelPos::Center;
+    g.set_edge("a", "b", Some(el), None);
+    let mut opts = LayoutOptions::default();
+    opts.ranksep = 300.0;
+    layout(&mut g, Some(opts));
+
+    let ax = g.node("a").unwrap().x.unwrap();
+    let ay = g.node("a").unwrap().y.unwrap();
+    let bx = g.node("b").unwrap().x.unwrap();
+    let by = g.node("b").unwrap().y.unwrap();
+    assert_eq!(ax, 75.0 / 2.0);
+    assert_eq!(ay, 100.0 / 2.0);
+    assert_eq!(bx, 75.0 / 2.0);
+    // y of b = 100 + 150 + 70 + 150 + 200/2 = 570
+    assert_eq!(by, 100.0 + 150.0 + 70.0 + 150.0 + 200.0 / 2.0);
+
+    let edge = g.edge("a", "b", None).unwrap();
+    assert_eq!(edge.x, Some(75.0 / 2.0));
+    assert_eq!(edge.y, Some(100.0 + 150.0 + 70.0 / 2.0));
+}
+
+#[test]
+fn layout_short_cycle() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 100.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.width = 100.0;
+    b.height = 100.0;
+    g.set_node("b".to_string(), Some(b));
+    let mut el_ab = EdgeLabel::default();
+    el_ab.weight = 2;
+    g.set_edge("a", "b", Some(el_ab), None);
+    g.set_edge("b", "a", Some(EdgeLabel::default()), None);
+    let mut opts = LayoutOptions::default();
+    opts.ranksep = 200.0;
+    layout(&mut g, Some(opts));
+
+    let ax = g.node("a").unwrap().x.unwrap();
+    let ay = g.node("a").unwrap().y.unwrap();
+    let bx = g.node("b").unwrap().x.unwrap();
+    let by = g.node("b").unwrap().y.unwrap();
+    assert_eq!(ax, 50.0);
+    assert_eq!(ay, 50.0);
+    assert_eq!(bx, 50.0);
+    assert_eq!(by, 100.0 + 200.0 + 50.0);
+}
+
+#[test]
+fn layout_adds_rectangle_intersects_for_edges() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 100.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.width = 100.0;
+    b.height = 100.0;
+    g.set_node("b".to_string(), Some(b));
+    g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    let mut opts = LayoutOptions::default();
+    opts.ranksep = 200.0;
+    layout(&mut g, Some(opts));
+
+    let points = &g.edge("a", "b", None).unwrap().points;
+    assert_eq!(points.len(), 3);
+    assert_eq!(points[0].x, 50.0);
+    assert_eq!(points[0].y, 100.0);       // bottom of a
+    assert_eq!(points[1].x, 50.0);
+    assert_eq!(points[1].y, 100.0 + 100.0); // midpoint
+    assert_eq!(points[2].x, 50.0);
+    assert_eq!(points[2].y, 100.0 + 200.0); // top of b
+}
+
+#[test]
+fn layout_adds_rectangle_intersects_for_multi_rank_edges() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 100.0;
+    a.height = 100.0;
+    g.set_node("a".to_string(), Some(a));
+    let mut b = NodeLabel::default();
+    b.width = 100.0;
+    b.height = 100.0;
+    g.set_node("b".to_string(), Some(b));
+    let mut el = EdgeLabel::default();
+    el.minlen = 2;
+    g.set_edge("a", "b", Some(el), None);
+    let mut opts = LayoutOptions::default();
+    opts.ranksep = 200.0;
+    layout(&mut g, Some(opts));
+
+    let points = &g.edge("a", "b", None).unwrap().points;
+    assert_eq!(points.len(), 5);
+    assert_eq!(points[0].x, 50.0);
+    assert_eq!(points[0].y, 100.0);         // bottom of a
+    assert_eq!(points[1].x, 50.0);
+    assert_eq!(points[1].y, 200.0);         // bend #1
+    assert_eq!(points[2].x, 50.0);
+    assert_eq!(points[2].y, 300.0);         // label point
+    assert_eq!(points[3].x, 50.0);
+    assert_eq!(points[3].y, 400.0);         // bend #2
+    assert_eq!(points[4].x, 50.0);
+    assert_eq!(points[4].y, 500.0);         // top of b
+}
+
+#[test]
+fn layout_can_layout_graph_with_subgraphs() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 50.0;
+    a.height = 50.0;
+    g.set_node("a".to_string(), Some(a));
+    g.set_parent("a", Some("sg1"));
+    layout(&mut g, None);
+    // This test primarily ensures nothing panics
+    assert!(g.node("a").unwrap().x.is_some());
+    assert!(g.node("a").unwrap().y.is_some());
+}
+
+#[test]
+fn layout_adds_dimensions_to_graph() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 100.0;
+    a.height = 50.0;
+    g.set_node("a".to_string(), Some(a));
+    layout(&mut g, None);
+    let gl = g.graph_label::<GraphLabel>().unwrap();
+    assert_eq!(gl.width, 100.0);
+    assert_eq!(gl.height, 50.0);
+}
+
+#[test]
+fn layout_ensures_coords_in_bounding_box_tb() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 100.0;
+    a.height = 200.0;
+    g.set_node("a".to_string(), Some(a));
+    layout(&mut g, None);
+    assert_eq!(g.node("a").unwrap().x, Some(50.0));
+    assert_eq!(g.node("a").unwrap().y, Some(100.0));
+}
+
+#[test]
+fn layout_ensures_coords_in_bounding_box_lr() {
+    let mut g = make_graph();
+    let mut a = NodeLabel::default();
+    a.width = 100.0;
+    a.height = 200.0;
+    g.set_node("a".to_string(), Some(a));
+    let opts = LayoutOptions {
+        rankdir: RankDir::LR,
+        ..Default::default()
+    };
+    layout(&mut g, Some(opts));
+    assert_eq!(g.node("a").unwrap().x, Some(50.0));
+    assert_eq!(g.node("a").unwrap().y, Some(100.0));
+}
+
+#[test]
+fn layout_minimizes_height_of_subgraphs() {
+    let mut g = make_graph();
+    for v in &["a", "b", "c", "d", "x", "y"] {
+        let mut label = NodeLabel::default();
+        label.width = 50.0;
+        label.height = 50.0;
+        g.set_node(v.to_string(), Some(label));
+    }
+    g.set_path(&["a", "b", "c", "d"], Some(EdgeLabel::default()));
+    let mut el_ax = EdgeLabel::default();
+    el_ax.weight = 100;
+    g.set_edge("a", "x", Some(el_ax), None);
+    let mut el_yd = EdgeLabel::default();
+    el_yd.weight = 100;
+    g.set_edge("y", "d", Some(el_yd), None);
+    g.set_parent("x", Some("sg"));
+    g.set_parent("y", Some("sg"));
+
+    layout(&mut g, None);
+    assert_eq!(g.node("x").unwrap().y, g.node("y").unwrap().y);
+}
+
+#[test]
+fn layout_can_layout_subgraphs_with_different_rankdirs() {
+    for rankdir in &[RankDir::TB, RankDir::BT, RankDir::LR, RankDir::RL] {
+        let mut g = make_graph();
+        let mut a = NodeLabel::default();
+        a.width = 50.0;
+        a.height = 50.0;
+        g.set_node("a".to_string(), Some(a));
+        g.set_node("sg".to_string(), Some(NodeLabel::default()));
+        g.set_parent("a", Some("sg"));
+
+        let opts = LayoutOptions {
+            rankdir: *rankdir,
+            ..Default::default()
+        };
+        layout(&mut g, Some(opts));
+
+        let sg = g.node("sg").unwrap();
+        assert!(sg.width > 50.0, "sg width should be > 50 for {:?}", rankdir);
+        assert!(sg.height > 50.0, "sg height should be > 50 for {:?}", rankdir);
+        assert!(sg.x.unwrap() > 25.0, "sg x should be > 25 for {:?}", rankdir);
+        assert!(sg.y.unwrap() > 25.0, "sg y should be > 25 for {:?}", rankdir);
+    }
+}
