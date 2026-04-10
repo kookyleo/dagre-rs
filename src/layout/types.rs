@@ -149,7 +149,10 @@ impl Default for GraphLabel {
             acyclicer: None,
             ranker: Ranker::NetworkSimplex,
             nesting_root: None,
-            node_rank_factor: None,
+            // dagre.js always creates compound layout graph + runs nestingGraph.run()
+            // which sets nodeRankFactor=1 minimum. This prevents removeEmptyRanks
+            // from collapsing intermediate ranks used for edge label placement.
+            node_rank_factor: Some(1.0),
             dummy_chains: Vec::new(),
             max_rank: None,
         }

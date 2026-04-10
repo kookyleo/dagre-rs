@@ -274,13 +274,16 @@ fn insert_self_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
     }
 }
 
-/// For edges with non-zero width AND height, create dummy node at rank midpoint
-/// with type "edge-proxy".
+/// For edges with non-zero width AND height, create a dummy "edge-proxy" node
+/// at the rank midpoint. This keeps the rank occupied so that
+/// `remove_empty_ranks` doesn't collapse it. After `normalize_ranks`,
+/// `remove_edge_label_proxies` reads the (possibly shifted) rank back and
+/// stores it as `label_rank` on the edge.
 fn inject_edge_label_proxies(g: &mut Graph<NodeLabel, EdgeLabel>) {
     let edges: Vec<Edge> = g.edges();
 
     for e in edges {
-        let (_width, _height, v_rank, w_rank) = {
+        let (v_rank, w_rank, has_label) = {
             let label = match g.edge(&e.v, &e.w, e.name.as_deref()) {
                 Some(l) => l,
                 None => continue,
@@ -290,15 +293,25 @@ fn inject_edge_label_proxies(g: &mut Graph<NodeLabel, EdgeLabel>) {
             }
             let vr = g.node(&e.v).and_then(|n| n.rank).unwrap_or(0);
             let wr = g.node(&e.w).and_then(|n| n.rank).unwrap_or(0);
-            (label.width, label.height, vr, wr)
+            (vr, wr, true)
         };
+
+        if !has_label {
+            continue;
+        }
 
         let mid_rank = (w_rank - v_rank) / 2 + v_rank;
 
-        // Set label_rank on the edge
-        if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref()) {
-            label.label_rank = Some(mid_rank as f64);
-        }
+        let mut attrs = NodeLabel::default();
+        attrs.rank = Some(mid_rank);
+        attrs.edge_obj = Some(crate::graph::Edge {
+            v: e.v.clone(),
+            w: e.w.clone(),
+            name: e.name.clone(),
+        });
+        // Store a reference to the edge so remove_edge_label_proxies can
+        // set label_rank on it later.
+        util::add_dummy_node(g, "edge-proxy", attrs, "_ep");
     }
 }
 

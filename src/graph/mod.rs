@@ -97,11 +97,13 @@ pub struct Graph<N = (), E = ()> {
 
     // Node storage: node_id -> label
     nodes: HashMap<String, Option<N>>,
+    // Insertion-order tracking for deterministic iteration (matches JS property order)
+    node_order: Vec<String>,
     node_count: usize,
 
     // Compound graph: parent-child relationships
     parent: HashMap<String, String>,
-    children: HashMap<String, HashSet<String>>,
+    children: HashMap<String, Vec<String>>,
 
     // Adjacency: node_id -> { edge_id -> Edge }
     in_edges: HashMap<String, HashMap<String, Edge>>,
@@ -110,6 +112,9 @@ pub struct Graph<N = (), E = ()> {
     // Predecessor/successor counts: node -> { neighbor -> count }
     preds: HashMap<String, HashMap<String, usize>>,
     sucs: HashMap<String, HashMap<String, usize>>,
+    // Insertion-order tracking for predecessors/successors per node
+    preds_order: HashMap<String, Vec<String>>,
+    sucs_order: HashMap<String, Vec<String>>,
 
     // Edge storage
     edge_objs: HashMap<String, Edge>,
@@ -135,6 +140,7 @@ impl<N, E> Graph<N, E> {
             is_compound: opts.compound,
             label: None,
             nodes: HashMap::new(),
+            node_order: Vec::new(),
             node_count: 0,
             parent: HashMap::new(),
             children: HashMap::new(),
@@ -142,6 +148,8 @@ impl<N, E> Graph<N, E> {
             out_edges: HashMap::new(),
             preds: HashMap::new(),
             sucs: HashMap::new(),
+            preds_order: HashMap::new(),
+            sucs_order: HashMap::new(),
             edge_objs: HashMap::new(),
             edge_labels: HashMap::new(),
             edge_count: 0,
@@ -152,7 +160,7 @@ impl<N, E> Graph<N, E> {
         if opts.compound {
             // Root pseudo-node has all top-level nodes as children
             g.children
-                .insert(GRAPH_NODE.to_string(), HashSet::new());
+                .insert(GRAPH_NODE.to_string(), Vec::new());
         }
 
         g
@@ -211,31 +219,31 @@ impl<N, E> Graph<N, E> {
         self.node_count
     }
 
-    /// Returns all node IDs.
+    /// Returns all node IDs in insertion order.
     pub fn nodes(&self) -> Vec<String> {
-        self.nodes.keys().cloned().collect()
+        self.node_order.clone()
     }
 
-    /// Returns nodes with no in-edges.
+    /// Returns nodes with no in-edges (in insertion order).
     pub fn sources(&self) -> Vec<String> {
-        self.nodes
-            .keys()
+        self.node_order
+            .iter()
             .filter(|v| {
                 self.in_edges
-                    .get(*v)
+                    .get(v.as_str())
                     .map_or(true, |edges| edges.is_empty())
             })
             .cloned()
             .collect()
     }
 
-    /// Returns nodes with no out-edges.
+    /// Returns nodes with no out-edges (in insertion order).
     pub fn sinks(&self) -> Vec<String> {
-        self.nodes
-            .keys()
+        self.node_order
+            .iter()
             .filter(|v| {
                 self.out_edges
-                    .get(*v)
+                    .get(v.as_str())
                     .map_or(true, |edges| edges.is_empty())
             })
             .cloned()
@@ -261,14 +269,17 @@ impl<N, E> Graph<N, E> {
         };
 
         self.nodes.insert(v.clone(), label);
+        self.node_order.push(v.clone());
         self.node_count += 1;
 
         if self.is_compound {
             self.parent.insert(v.clone(), GRAPH_NODE.to_string());
-            self.children
+            let siblings = self.children
                 .entry(GRAPH_NODE.to_string())
-                .or_default()
-                .insert(v.clone());
+                .or_default();
+            if !siblings.contains(&v) {
+                siblings.push(v.clone());
+            }
             self.children.entry(v.clone()).or_default();
         }
 
@@ -320,15 +331,17 @@ impl<N, E> Graph<N, E> {
                 if let Some(my_children) = self.children.remove(v) {
                     for child in &my_children {
                         self.parent.insert(child.clone(), parent_id.clone());
-                        self.children
+                        let parent_children = self.children
                             .entry(parent_id.clone())
-                            .or_default()
-                            .insert(child.clone());
+                            .or_default();
+                        if !parent_children.contains(child) {
+                            parent_children.push(child.clone());
+                        }
                     }
                 }
                 // Remove from parent's children
                 if let Some(siblings) = self.children.get_mut(&parent_id) {
-                    siblings.remove(v);
+                    siblings.retain(|n| n != v);
                 }
             }
             self.parent.remove(v);
@@ -336,6 +349,9 @@ impl<N, E> Graph<N, E> {
 
         self.preds.remove(v);
         self.sucs.remove(v);
+        self.preds_order.remove(v);
+        self.sucs_order.remove(v);
+        self.node_order.retain(|n| n != v);
         self.node_count -= 1;
         self.nodes.remove(v).flatten()
     }
@@ -359,16 +375,18 @@ impl<N, E> Graph<N, E> {
         // Remove from old parent
         if let Some(old_parent) = self.parent.get(v).cloned() {
             if let Some(siblings) = self.children.get_mut(&old_parent) {
-                siblings.remove(v);
+                siblings.retain(|n| n != v);
             }
         }
 
         // Set new parent
         self.parent.insert(v.to_string(), parent.to_string());
-        self.children
+        let new_siblings = self.children
             .entry(parent.to_string())
-            .or_default()
-            .insert(v.to_string());
+            .or_default();
+        if !new_siblings.contains(&v.to_string()) {
+            new_siblings.push(v.to_string());
+        }
 
         self
     }
@@ -399,41 +417,50 @@ impl<N, E> Graph<N, E> {
         let key = v.unwrap_or(GRAPH_NODE);
         self.children
             .get(key)
-            .map(|set| set.iter().cloned().collect())
+            .cloned()
             .unwrap_or_default()
     }
 
     // --- Adjacency ---
 
-    /// Get predecessors of a node (nodes with edges pointing to v).
+    /// Get predecessors of a node (nodes with edges pointing to v), in insertion order.
     pub fn predecessors(&self, v: &str) -> Option<Vec<String>> {
         if !self.has_node(v) {
             return None;
         }
-        self.preds
-            .get(v)
-            .map(|m| m.keys().cloned().collect())
+        Some(
+            self.preds_order
+                .get(v)
+                .cloned()
+                .unwrap_or_default(),
+        )
     }
 
-    /// Get successors of a node (nodes that v points to).
+    /// Get successors of a node (nodes that v points to), in insertion order.
     pub fn successors(&self, v: &str) -> Option<Vec<String>> {
         if !self.has_node(v) {
             return None;
         }
-        self.sucs
-            .get(v)
-            .map(|m| m.keys().cloned().collect())
+        Some(
+            self.sucs_order
+                .get(v)
+                .cloned()
+                .unwrap_or_default(),
+        )
     }
 
-    /// Get all neighbors of a node (union of predecessors and successors).
+    /// Get all neighbors of a node (union of predecessors and successors), in insertion order.
     pub fn neighbors(&self, v: &str) -> Option<Vec<String>> {
         let preds = self.predecessors(v)?;
         let sucs = self.successors(v)?;
-        let mut set: HashSet<String> = preds.into_iter().collect();
-        for s in sucs {
-            set.insert(s);
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for n in preds.into_iter().chain(sucs) {
+            if seen.insert(n.clone()) {
+                result.push(n);
+            }
         }
-        Some(set.into_iter().collect())
+        Some(result)
     }
 
     /// Check if a node has no outgoing edges.
@@ -507,18 +534,28 @@ impl<N, E> Graph<N, E> {
             .or_default()
             .insert(eid.clone(), e.clone());
 
-        *self
-            .preds
-            .entry(e.w.clone())
-            .or_default()
-            .entry(e.v.clone())
-            .or_insert(0) += 1;
-        *self
-            .sucs
-            .entry(e.v.clone())
-            .or_default()
-            .entry(e.w.clone())
-            .or_insert(0) += 1;
+        {
+            let preds_map = self.preds.entry(e.w.clone()).or_default();
+            let is_new = !preds_map.contains_key(&e.v);
+            *preds_map.entry(e.v.clone()).or_insert(0) += 1;
+            if is_new {
+                self.preds_order
+                    .entry(e.w.clone())
+                    .or_default()
+                    .push(e.v.clone());
+            }
+        }
+        {
+            let sucs_map = self.sucs.entry(e.v.clone()).or_default();
+            let is_new = !sucs_map.contains_key(&e.w);
+            *sucs_map.entry(e.w.clone()).or_insert(0) += 1;
+            if is_new {
+                self.sucs_order
+                    .entry(e.v.clone())
+                    .or_default()
+                    .push(e.w.clone());
+            }
+        }
 
         // For undirected graphs, add reverse adjacency as well
         if !self.is_directed {
@@ -531,18 +568,28 @@ impl<N, E> Graph<N, E> {
                 .or_default()
                 .insert(eid.clone(), e.clone());
 
-            *self
-                .preds
-                .entry(e.v.clone())
-                .or_default()
-                .entry(e.w.clone())
-                .or_insert(0) += 1;
-            *self
-                .sucs
-                .entry(e.w.clone())
-                .or_default()
-                .entry(e.v.clone())
-                .or_insert(0) += 1;
+            {
+                let preds_map = self.preds.entry(e.v.clone()).or_default();
+                let is_new = !preds_map.contains_key(&e.w);
+                *preds_map.entry(e.w.clone()).or_insert(0) += 1;
+                if is_new {
+                    self.preds_order
+                        .entry(e.v.clone())
+                        .or_default()
+                        .push(e.w.clone());
+                }
+            }
+            {
+                let sucs_map = self.sucs.entry(e.w.clone()).or_default();
+                let is_new = !sucs_map.contains_key(&e.v);
+                *sucs_map.entry(e.v.clone()).or_insert(0) += 1;
+                if is_new {
+                    self.sucs_order
+                        .entry(e.w.clone())
+                        .or_default()
+                        .push(e.v.clone());
+                }
+            }
         }
 
         self
@@ -590,12 +637,15 @@ impl<N, E> Graph<N, E> {
             out_e.remove(eid);
         }
 
-        // Decrement pred/suc counts
+        // Decrement pred/suc counts and update order tracking
         if let Some(preds) = self.preds.get_mut(&e.w) {
             if let Some(count) = preds.get_mut(&e.v) {
                 *count -= 1;
                 if *count == 0 {
                     preds.remove(&e.v);
+                    if let Some(order) = self.preds_order.get_mut(&e.w) {
+                        order.retain(|n| n != &e.v);
+                    }
                 }
             }
         }
@@ -604,6 +654,9 @@ impl<N, E> Graph<N, E> {
                 *count -= 1;
                 if *count == 0 {
                     sucs.remove(&e.w);
+                    if let Some(order) = self.sucs_order.get_mut(&e.v) {
+                        order.retain(|n| n != &e.w);
+                    }
                 }
             }
         }
@@ -621,6 +674,9 @@ impl<N, E> Graph<N, E> {
                     *count -= 1;
                     if *count == 0 {
                         preds.remove(&e.w);
+                        if let Some(order) = self.preds_order.get_mut(&e.v) {
+                            order.retain(|n| n != &e.w);
+                        }
                     }
                 }
             }
@@ -629,6 +685,9 @@ impl<N, E> Graph<N, E> {
                     *count -= 1;
                     if *count == 0 {
                         sucs.remove(&e.v);
+                        if let Some(order) = self.sucs_order.get_mut(&e.w) {
+                            order.retain(|n| n != &e.v);
+                        }
                     }
                 }
             }
@@ -697,9 +756,10 @@ impl<N, E> Graph<N, E> {
             compound: self.is_compound,
         });
 
-        for (v, label) in &self.nodes {
+        for v in &self.node_order {
             if predicate(v) {
-                g.set_node(v.clone(), label.clone());
+                let label = self.nodes.get(v).and_then(|l| l.clone());
+                g.set_node(v.clone(), label);
             }
         }
 

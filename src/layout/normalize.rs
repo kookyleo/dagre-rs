@@ -57,14 +57,16 @@ fn normalize_edge(
         attrs.rank = Some(current_rank);
 
         // If this dummy is at the label rank, give it the label's dimensions
-        if label_rank.map(|r| r as i32) == Some(current_rank) {
+        let dummy_type = if label_rank.map(|r| r as i32) == Some(current_rank) {
             attrs.width = edge_label.width;
             attrs.height = edge_label.height;
-            attrs.dummy = Some("edge-label".to_string());
             attrs.labelpos = edge_label.labelpos;
-        }
+            "edge-label"
+        } else {
+            "edge"
+        };
 
-        let dummy = add_dummy_node(g, "edge", attrs, "_d");
+        let dummy = add_dummy_node(g, dummy_type, attrs, "_d");
 
         // Set edge from prev to dummy
         let mut el = EdgeLabel::default();

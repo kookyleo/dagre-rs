@@ -216,27 +216,25 @@ pub(crate) fn remove_empty_ranks(g: &mut Graph<NodeLabel, EdgeLabel>) {
         }
     }
 
-    // Get nodeRankFactor from graph label (set by nesting_graph)
+    // Get nodeRankFactor from graph label (set by nesting_graph).
+    // In dagre.js, nestingGraph.run is always called, setting nodeRankFactor
+    // to at least 1. With nodeRankFactor=1, `i % 1 === 0` for all i, so
+    // no empty ranks are ever removed for non-compound graphs.
+    // For compound graphs, nodeRankFactor = 2*height+1 (>= 1).
+    // Only ranks at non-factor positions are removed.
     let node_rank_factor = g
         .graph_label::<GraphLabel>()
         .and_then(|gl| gl.node_rank_factor)
         .map(|f| f as i32)
-        .unwrap_or(0);
+        .unwrap_or(1); // Default to 1 matching JS nestingGraph behavior
 
     let mut delta: i32 = 0;
     for (i, layer) in layers.iter().enumerate() {
         if layer.is_empty() {
-            // Only remove empty ranks if they're NOT at a nodeRankFactor boundary
-            // When nodeRankFactor is 0 or 1, this means no ranks are removed
-            if node_rank_factor > 1 && (i as i32) % node_rank_factor != 0 {
+            // Remove empty rank only if it's NOT at a nodeRankFactor boundary
+            if node_rank_factor > 0 && (i as i32) % node_rank_factor != 0 {
                 delta -= 1;
             }
-            // When nodeRankFactor <= 1 (or not set), JS behavior:
-            // i % undefined = NaN, NaN !== 0 = true, so all empty ranks removed
-            // BUT dagre.js always sets nodeRankFactor via nestingGraph, so this
-            // path is rarely hit. To match dagre.js behavior (which always runs
-            // nesting graph setting nodeRankFactor=1), we do NOT remove empty
-            // ranks when nodeRankFactor is not set.
         } else if delta != 0 {
             for v in layer {
                 if let Some(node) = g.node_mut(v) {
