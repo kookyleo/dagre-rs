@@ -44,7 +44,7 @@ pub fn undo(g: &mut Graph<NodeLabel, EdgeLabel>) {
         .into_iter()
         .filter(|e| {
             g.edge(&e.v, &e.w, e.name.as_deref())
-                .map_or(false, |label| label.reversed)
+                .is_some_and(|label| label.reversed)
         })
         .collect();
 
@@ -54,12 +54,7 @@ pub fn undo(g: &mut Graph<NodeLabel, EdgeLabel>) {
             .unwrap_or_default();
         let forward_name = label.forward_name.take();
         label.reversed = false;
-        g.set_edge(
-            &e.w,
-            &e.v,
-            Some(label),
-            forward_name.as_deref(),
-        );
+        g.set_edge(&e.w, &e.v, Some(label), forward_name.as_deref());
     }
 }
 
@@ -113,10 +108,7 @@ struct FasEntry {
 ///
 /// Based on: P. Eades, X. Lin, and W. F. Smyth, "A fast and effective
 /// heuristic for the feedback arc set problem." Extended to handle weighted edges.
-pub fn greedy_fas(
-    g: &Graph<NodeLabel, EdgeLabel>,
-    weight_fn: &dyn Fn(&Edge) -> i32,
-) -> Vec<Edge> {
+pub fn greedy_fas(g: &Graph<NodeLabel, EdgeLabel>, weight_fn: &dyn Fn(&Edge) -> i32) -> Vec<Edge> {
     if g.node_count() <= 1 {
         return Vec::new();
     }
@@ -127,10 +119,7 @@ pub fn greedy_fas(
     // Expand multi-edges: map simplified edges back to the original multi-edges
     results
         .into_iter()
-        .flat_map(|edge| {
-            g.out_edges(&edge.v, Some(&edge.w))
-                .unwrap_or_default()
-        })
+        .flat_map(|edge| g.out_edges(&edge.v, Some(&edge.w)).unwrap_or_default())
         .collect()
 }
 
@@ -151,10 +140,7 @@ struct FasState {
     zero_idx: usize,
 }
 
-fn build_state(
-    g: &Graph<NodeLabel, EdgeLabel>,
-    weight_fn: &dyn Fn(&Edge) -> i32,
-) -> FasState {
+fn build_state(g: &Graph<NodeLabel, EdgeLabel>, weight_fn: &dyn Fn(&Edge) -> i32) -> FasState {
     let mut out_adj: HashMap<String, HashMap<String, i32>> = HashMap::new();
     let mut in_adj: HashMap<String, HashMap<String, i32>> = HashMap::new();
     let mut entries: HashMap<String, FasEntry> = HashMap::new();
@@ -214,12 +200,7 @@ fn build_state(
     }
 }
 
-fn assign_bucket(
-    buckets: &mut [VecDeque<String>],
-    zero_idx: usize,
-    v: &str,
-    entry: &FasEntry,
-) {
+fn assign_bucket(buckets: &mut [VecDeque<String>], zero_idx: usize, v: &str, entry: &FasEntry) {
     let idx = if entry.out_weight == 0 {
         // Sink: bucket 0
         0
@@ -243,8 +224,7 @@ fn do_greedy_fas(initial_state: &FasState) -> Vec<Edge> {
     let mut entries = initial_state.entries.clone();
     let mut buckets = initial_state.buckets.clone();
     let zero_idx = initial_state.zero_idx;
-    let mut remaining: HashMap<String, bool> =
-        entries.keys().map(|k| (k.clone(), true)).collect();
+    let mut remaining: HashMap<String, bool> = entries.keys().map(|k| (k.clone(), true)).collect();
 
     let mut results: Vec<Edge> = Vec::new();
 
@@ -253,8 +233,15 @@ fn do_greedy_fas(initial_state: &FasState) -> Vec<Edge> {
         while let Some(v) = buckets[0].pop_back() {
             if remaining.remove(&v).is_some() {
                 remove_node(
-                    &v, &mut out_adj, &mut in_adj, &mut entries, &mut buckets,
-                    zero_idx, false, &mut results, &mut remaining,
+                    &v,
+                    &mut out_adj,
+                    &mut in_adj,
+                    &mut entries,
+                    &mut buckets,
+                    zero_idx,
+                    false,
+                    &mut results,
+                    &mut remaining,
                 );
             }
         }
@@ -264,8 +251,15 @@ fn do_greedy_fas(initial_state: &FasState) -> Vec<Edge> {
         while let Some(v) = buckets[last].pop_back() {
             if remaining.remove(&v).is_some() {
                 remove_node(
-                    &v, &mut out_adj, &mut in_adj, &mut entries, &mut buckets,
-                    zero_idx, false, &mut results, &mut remaining,
+                    &v,
+                    &mut out_adj,
+                    &mut in_adj,
+                    &mut entries,
+                    &mut buckets,
+                    zero_idx,
+                    false,
+                    &mut results,
+                    &mut remaining,
                 );
             }
         }
@@ -276,8 +270,15 @@ fn do_greedy_fas(initial_state: &FasState) -> Vec<Edge> {
                 if let Some(v) = pop_valid_entry(&mut buckets[i], &remaining) {
                     remaining.remove(&v);
                     remove_node(
-                        &v, &mut out_adj, &mut in_adj, &mut entries, &mut buckets,
-                        zero_idx, true, &mut results, &mut remaining,
+                        &v,
+                        &mut out_adj,
+                        &mut in_adj,
+                        &mut entries,
+                        &mut buckets,
+                        zero_idx,
+                        true,
+                        &mut results,
+                        &mut remaining,
                     );
                     break;
                 }
@@ -345,11 +346,13 @@ fn remove_node(
     }
 
     // Also clean up reverse adjacency references
-    if let Some(predecessors) = entries.get(v).map(|_| {
-        in_adj.values_mut().for_each(|m| { m.remove(v); });
-        out_adj.values_mut().for_each(|m| { m.remove(v); });
-    }) {
-        let _ = predecessors;
+    if entries.get(v).is_some() {
+        in_adj.values_mut().for_each(|m| {
+            m.remove(v);
+        });
+        out_adj.values_mut().for_each(|m| {
+            m.remove(v);
+        });
     }
 
     entries.remove(v);

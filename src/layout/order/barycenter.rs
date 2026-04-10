@@ -39,10 +39,7 @@ pub(crate) fn barycenter(
             let mut weight = 0_i32;
             for e in &in_edges {
                 let edge_weight = g.edge_by_obj(e).map_or(1, |l| l.weight);
-                let node_order = g
-                    .node(&e.v)
-                    .and_then(|n| n.order)
-                    .unwrap_or(0) as f64;
+                let node_order = g.node(&e.v).and_then(|n| n.order).unwrap_or(0) as f64;
                 sum += edge_weight as f64 * node_order;
                 weight += edge_weight;
             }

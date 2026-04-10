@@ -9,6 +9,12 @@ pub mod json;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+/// Default node label factory type.
+type NodeLabelFactory<N> = Option<Box<dyn Fn(&str) -> N>>;
+
+/// Default edge label factory type.
+type EdgeLabelFactory<E> = Option<Box<dyn Fn(&Edge) -> E>>;
+
 /// Edge descriptor: source, target, and optional name (for multigraphs).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Edge {
@@ -128,8 +134,8 @@ pub struct Graph<N = (), E = ()> {
     edge_count: usize,
 
     // Default label factories
-    default_node_label: Option<Box<dyn Fn(&str) -> N>>,
-    default_edge_label: Option<Box<dyn Fn(&Edge) -> E>>,
+    default_node_label: NodeLabelFactory<N>,
+    default_edge_label: EdgeLabelFactory<E>,
 }
 
 impl<N, E> Graph<N, E> {
@@ -168,8 +174,7 @@ impl<N, E> Graph<N, E> {
 
         if opts.compound {
             // Root pseudo-node has all top-level nodes as children
-            g.children
-                .insert(GRAPH_NODE.to_string(), Vec::new());
+            g.children.insert(GRAPH_NODE.to_string(), Vec::new());
         }
 
         g
@@ -240,7 +245,7 @@ impl<N, E> Graph<N, E> {
             .filter(|v| {
                 self.in_edges
                     .get(v.as_str())
-                    .map_or(true, |edges| edges.is_empty())
+                    .is_none_or(|edges| edges.is_empty())
             })
             .cloned()
             .collect()
@@ -253,7 +258,7 @@ impl<N, E> Graph<N, E> {
             .filter(|v| {
                 self.out_edges
                     .get(v.as_str())
-                    .map_or(true, |edges| edges.is_empty())
+                    .is_none_or(|edges| edges.is_empty())
             })
             .cloned()
             .collect()
@@ -262,9 +267,10 @@ impl<N, E> Graph<N, E> {
     /// Set a node with an optional label. Creates the node if it doesn't exist.
     pub fn set_node(&mut self, v: impl Into<String>, label: Option<N>) -> &mut Self {
         let v = v.into();
-        if self.nodes.contains_key(&v) {
+        if let std::collections::hash_map::Entry::Occupied(mut entry) = self.nodes.entry(v.clone())
+        {
             if label.is_some() {
-                self.nodes.insert(v, label);
+                entry.insert(label);
             }
             return self;
         }
@@ -272,9 +278,7 @@ impl<N, E> Graph<N, E> {
         let label = if label.is_some() {
             label
         } else {
-            self.default_node_label
-                .as_ref()
-                .map(|f| f(&v))
+            self.default_node_label.as_ref().map(|f| f(&v))
         };
 
         self.nodes.insert(v.clone(), label);
@@ -283,9 +287,7 @@ impl<N, E> Graph<N, E> {
 
         if self.is_compound {
             self.parent.insert(v.clone(), GRAPH_NODE.to_string());
-            let siblings = self.children
-                .entry(GRAPH_NODE.to_string())
-                .or_default();
+            let siblings = self.children.entry(GRAPH_NODE.to_string()).or_default();
             if !siblings.contains(&v) {
                 siblings.push(v.clone());
             }
@@ -342,9 +344,7 @@ impl<N, E> Graph<N, E> {
                 if let Some(my_children) = self.children.remove(v) {
                     for child in &my_children {
                         self.parent.insert(child.clone(), parent_id.clone());
-                        let parent_children = self.children
-                            .entry(parent_id.clone())
-                            .or_default();
+                        let parent_children = self.children.entry(parent_id.clone()).or_default();
                         if !parent_children.contains(child) {
                             parent_children.push(child.clone());
                         }
@@ -373,7 +373,10 @@ impl<N, E> Graph<N, E> {
     /// Panics if setting the parent would create a cycle in the parent hierarchy
     /// (i.e. if `parent` is a descendant of `v`).
     pub fn set_parent(&mut self, v: &str, parent: Option<&str>) -> &mut Self {
-        assert!(self.is_compound, "Cannot set parent in a non-compound graph");
+        assert!(
+            self.is_compound,
+            "Cannot set parent in a non-compound graph"
+        );
 
         let parent = parent.unwrap_or(GRAPH_NODE);
 
@@ -393,23 +396,25 @@ impl<N, E> Graph<N, E> {
                     panic!("Setting {} as parent of {} would create a cycle", parent, v);
                 }
                 ancestor = self.parent.get(a).and_then(|p| {
-                    if p == GRAPH_NODE { None } else { Some(p.as_str()) }
+                    if p == GRAPH_NODE {
+                        None
+                    } else {
+                        Some(p.as_str())
+                    }
                 });
             }
         }
 
         // Remove from old parent
-        if let Some(old_parent) = self.parent.get(v).cloned() {
-            if let Some(siblings) = self.children.get_mut(&old_parent) {
-                siblings.retain(|n| n != v);
-            }
+        if let Some(old_parent) = self.parent.get(v).cloned()
+            && let Some(siblings) = self.children.get_mut(&old_parent)
+        {
+            siblings.retain(|n| n != v);
         }
 
         // Set new parent
         self.parent.insert(v.to_string(), parent.to_string());
-        let new_siblings = self.children
-            .entry(parent.to_string())
-            .or_default();
+        let new_siblings = self.children.entry(parent.to_string()).or_default();
         if !new_siblings.contains(&v.to_string()) {
             new_siblings.push(v.to_string());
         }
@@ -441,10 +446,7 @@ impl<N, E> Graph<N, E> {
         }
 
         let key = v.unwrap_or(GRAPH_NODE);
-        self.children
-            .get(key)
-            .cloned()
-            .unwrap_or_default()
+        self.children.get(key).cloned().unwrap_or_default()
     }
 
     // --- Adjacency ---
@@ -454,12 +456,7 @@ impl<N, E> Graph<N, E> {
         if !self.has_node(v) {
             return None;
         }
-        Some(
-            self.preds_order
-                .get(v)
-                .cloned()
-                .unwrap_or_default(),
-        )
+        Some(self.preds_order.get(v).cloned().unwrap_or_default())
     }
 
     /// Get successors of a node (nodes that v points to), in insertion order.
@@ -467,12 +464,7 @@ impl<N, E> Graph<N, E> {
         if !self.has_node(v) {
             return None;
         }
-        Some(
-            self.sucs_order
-                .get(v)
-                .cloned()
-                .unwrap_or_default(),
-        )
+        Some(self.sucs_order.get(v).cloned().unwrap_or_default())
     }
 
     /// Get all neighbors of a node (union of predecessors and successors), in insertion order.
@@ -528,9 +520,11 @@ impl<N, E> Graph<N, E> {
         let eid = edge_id(&v, &w, self.is_directed, name);
         let e = edge_obj_for(self.is_directed, &v, &w, name);
 
-        if self.edge_labels.contains_key(&eid) {
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.edge_labels.entry(eid.clone())
+        {
             if label.is_some() {
-                self.edge_labels.insert(eid, label);
+                entry.insert(label);
             }
             return self;
         }
@@ -691,25 +685,25 @@ impl<N, E> Graph<N, E> {
         }
 
         // Decrement pred/suc counts and update order tracking
-        if let Some(preds) = self.preds.get_mut(&e.w) {
-            if let Some(count) = preds.get_mut(&e.v) {
-                *count -= 1;
-                if *count == 0 {
-                    preds.remove(&e.v);
-                    if let Some(order) = self.preds_order.get_mut(&e.w) {
-                        order.retain(|n| n != &e.v);
-                    }
+        if let Some(preds) = self.preds.get_mut(&e.w)
+            && let Some(count) = preds.get_mut(&e.v)
+        {
+            *count -= 1;
+            if *count == 0 {
+                preds.remove(&e.v);
+                if let Some(order) = self.preds_order.get_mut(&e.w) {
+                    order.retain(|n| n != &e.v);
                 }
             }
         }
-        if let Some(sucs) = self.sucs.get_mut(&e.v) {
-            if let Some(count) = sucs.get_mut(&e.w) {
-                *count -= 1;
-                if *count == 0 {
-                    sucs.remove(&e.w);
-                    if let Some(order) = self.sucs_order.get_mut(&e.v) {
-                        order.retain(|n| n != &e.w);
-                    }
+        if let Some(sucs) = self.sucs.get_mut(&e.v)
+            && let Some(count) = sucs.get_mut(&e.w)
+        {
+            *count -= 1;
+            if *count == 0 {
+                sucs.remove(&e.w);
+                if let Some(order) = self.sucs_order.get_mut(&e.v) {
+                    order.retain(|n| n != &e.w);
                 }
             }
         }
@@ -728,25 +722,25 @@ impl<N, E> Graph<N, E> {
             if let Some(order) = self.out_edge_order.get_mut(&e.w) {
                 order.retain(|id| id != eid);
             }
-            if let Some(preds) = self.preds.get_mut(&e.v) {
-                if let Some(count) = preds.get_mut(&e.w) {
-                    *count -= 1;
-                    if *count == 0 {
-                        preds.remove(&e.w);
-                        if let Some(order) = self.preds_order.get_mut(&e.v) {
-                            order.retain(|n| n != &e.w);
-                        }
+            if let Some(preds) = self.preds.get_mut(&e.v)
+                && let Some(count) = preds.get_mut(&e.w)
+            {
+                *count -= 1;
+                if *count == 0 {
+                    preds.remove(&e.w);
+                    if let Some(order) = self.preds_order.get_mut(&e.v) {
+                        order.retain(|n| n != &e.w);
                     }
                 }
             }
-            if let Some(sucs) = self.sucs.get_mut(&e.w) {
-                if let Some(count) = sucs.get_mut(&e.v) {
-                    *count -= 1;
-                    if *count == 0 {
-                        sucs.remove(&e.v);
-                        if let Some(order) = self.sucs_order.get_mut(&e.w) {
-                            order.retain(|n| n != &e.v);
-                        }
+            if let Some(sucs) = self.sucs.get_mut(&e.w)
+                && let Some(count) = sucs.get_mut(&e.v)
+            {
+                *count -= 1;
+                if *count == 0 {
+                    sucs.remove(&e.v);
+                    if let Some(order) = self.sucs_order.get_mut(&e.w) {
+                        order.retain(|n| n != &e.v);
                     }
                 }
             }

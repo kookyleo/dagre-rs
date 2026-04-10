@@ -20,11 +20,7 @@ use std::collections::HashSet;
 pub(crate) fn longest_path(g: &mut Graph<NodeLabel, EdgeLabel>) {
     let mut visited = HashSet::new();
 
-    fn dfs(
-        g: &mut Graph<NodeLabel, EdgeLabel>,
-        v: &str,
-        visited: &mut HashSet<String>,
-    ) -> i32 {
+    fn dfs(g: &mut Graph<NodeLabel, EdgeLabel>, v: &str, visited: &mut HashSet<String>) -> i32 {
         if visited.contains(v) {
             return g.node(v).unwrap().rank.unwrap();
         }
@@ -33,11 +29,12 @@ pub(crate) fn longest_path(g: &mut Graph<NodeLabel, EdgeLabel>) {
         let out_edges = g.out_edges(v, None).unwrap_or_default();
         let min_rank: Option<i32> = out_edges
             .iter()
-            .filter_map(|e| {
-                let minlen = g.edge(&e.v, &e.w, e.name.as_deref())
+            .map(|e| {
+                let minlen = g
+                    .edge(&e.v, &e.w, e.name.as_deref())
                     .map(|l| l.minlen)
                     .unwrap_or(1);
-                Some(dfs(g, &e.w, visited) - minlen)
+                dfs(g, &e.w, visited) - minlen
             })
             .min();
 

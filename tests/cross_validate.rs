@@ -273,14 +273,22 @@ fn cross_validate_all_cases() {
             if !approx_eq(x, ref_node.x, TOLERANCE) {
                 failures.push(format!(
                     "[{}] node '{}' x: dagre-rs={:.3}, dagre.js={:.3}, diff={:.3}",
-                    tc.name, v, x, ref_node.x, (x - ref_node.x).abs()
+                    tc.name,
+                    v,
+                    x,
+                    ref_node.x,
+                    (x - ref_node.x).abs()
                 ));
                 case_ok = false;
             }
             if !approx_eq(y, ref_node.y, TOLERANCE) {
                 failures.push(format!(
                     "[{}] node '{}' y: dagre-rs={:.3}, dagre.js={:.3}, diff={:.3}",
-                    tc.name, v, y, ref_node.y, (y - ref_node.y).abs()
+                    tc.name,
+                    v,
+                    y,
+                    ref_node.y,
+                    (y - ref_node.y).abs()
                 ));
                 case_ok = false;
             }
@@ -337,7 +345,8 @@ fn cross_validate_all_cases() {
     if total_fail > 0 {
         panic!(
             "{} of {} cross-validation cases diverged from dagre.js. See divergences above.",
-            total_fail, cases.len()
+            total_fail,
+            cases.len()
         );
     }
 }

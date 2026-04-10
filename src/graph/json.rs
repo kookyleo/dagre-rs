@@ -95,7 +95,9 @@ pub fn graph_to_json<N: Clone + Serialize, E: Clone + Serialize, G: Clone + Seri
 }
 
 /// Deserialize a graph from its JSON representation.
-pub fn graph_from_json<N: Clone, E: Clone, G>(json: JsonGraph<N, E, G>) -> (Graph<N, E>, Option<G>) {
+pub fn graph_from_json<N: Clone, E: Clone, G>(
+    json: JsonGraph<N, E, G>,
+) -> (Graph<N, E>, Option<G>) {
     let mut g = Graph::with_options(GraphOptions {
         directed: json.options.directed,
         multigraph: json.options.multigraph,

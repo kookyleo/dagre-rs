@@ -1,7 +1,7 @@
 //! Tests ported from graphlib.js graph-test.ts (170+ tests) and alg/ tests (57+ tests)
 
-use super::*;
 use super::alg;
+use super::*;
 
 // ============================================================
 // Graph - Initial State
@@ -1998,10 +1998,7 @@ fn set_default_edge_label_does_not_override_existing_multi_edge() {
     g.set_edge("a", "b", Some("old".to_string()), Some("name"));
     g.set_default_edge_label(|_| "should not set this".to_string());
     g.set_edge("a", "b", None, Some("name"));
-    assert_eq!(
-        g.edge("a", "b", Some("name")),
-        Some(&"old".to_string())
-    );
+    assert_eq!(g.edge("a", "b", Some("name")), Some(&"old".to_string()));
 }
 
 // ============================================================
@@ -2328,10 +2325,7 @@ fn tarjan_multiple_components_with_singleton() {
         })
         .collect();
     sccs.sort();
-    assert_eq!(
-        sccs,
-        vec![vec!["a", "b"], vec!["c", "d", "e"], vec!["f"]]
-    );
+    assert_eq!(sccs, vec![vec!["a", "b"], vec!["c", "d", "e"], vec!["f"]]);
 }
 
 // ============================================================
@@ -2604,9 +2598,7 @@ fn dijkstra_all_uses_weight_function() {
     let mut g: Graph<(), f64> = Graph::new();
     g.set_edge("a", "b", Some(2.0), None);
     g.set_edge("b", "c", Some(3.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::dijkstra_all(&g, weight_fn, None);
     assert_eq!(result["a"]["a"].0, 0.0);
     assert_eq!(result["a"]["b"].0, 2.0);
@@ -2624,9 +2616,7 @@ fn dijkstra_all_throws_for_negative_weights() {
     g.set_edge("a", "c", Some(-2.0), None);
     g.set_edge("b", "d", Some(3.0), None);
     g.set_edge("c", "d", Some(3.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let _result = alg::dijkstra_all(&g, weight_fn, None);
 }
 
@@ -2667,9 +2657,7 @@ fn floyd_warshall_uses_weight_function() {
     let mut g: Graph<(), f64> = Graph::new();
     g.set_edge("a", "b", Some(2.0), None);
     g.set_edge("b", "c", Some(3.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::floyd_warshall(&g, weight_fn, None);
     assert_eq!(result["a"]["a"].0, 0.0);
     assert_eq!(result["a"]["b"].0, 2.0);
@@ -2686,9 +2674,7 @@ fn floyd_warshall_handles_negative_weights() {
     g.set_edge("a", "c", Some(-2.0), None);
     g.set_edge("b", "d", Some(3.0), None);
     g.set_edge("c", "d", Some(3.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::floyd_warshall(&g, weight_fn, None);
     assert_eq!(result["a"]["a"].0, 0.0);
     assert_eq!(result["a"]["b"].0, 1.0);
@@ -2710,9 +2696,7 @@ fn floyd_warshall_handles_negative_weights() {
 fn floyd_warshall_includes_negative_self_edges() {
     let mut g: Graph<(), f64> = Graph::new();
     g.set_edge("a", "a", Some(-1.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::floyd_warshall(&g, weight_fn, None);
     // negative cycle: distance is -2 after one relaxation pass
     assert_eq!(result["a"]["a"].0, -2.0);
@@ -2727,9 +2711,7 @@ fn floyd_warshall_includes_negative_self_edges() {
 fn bellman_ford_distance_0_for_source() {
     let mut g: Graph<(), f64> = Graph::new();
     g.set_node("source", None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::bellman_ford(&g, "source", weight_fn, None);
     assert_eq!(result["source"].0, 0.0);
     assert_eq!(result["source"].1, None);
@@ -2740,9 +2722,7 @@ fn bellman_ford_infinity_for_unconnected() {
     let mut g: Graph<(), f64> = Graph::new();
     g.set_node("a", None);
     g.set_node("b", None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::bellman_ford(&g, "a", weight_fn, None);
     assert_eq!(result["a"].0, 0.0);
     assert!(result["b"].0.is_infinite());
@@ -2771,9 +2751,7 @@ fn bellman_ford_works_for_undirected() {
     });
     g.set_path(&["a", "b", "c"], None);
     g.set_edge("b", "d", None, None);
-    let edge_fn = |v: &str| -> Vec<Edge> {
-        g.node_edges(v, None).unwrap_or_default()
-    };
+    let edge_fn = |v: &str| -> Vec<Edge> { g.node_edges(v, None).unwrap_or_default() };
     let result = alg::bellman_ford(&g, "a", |_e| 1.0, Some(&edge_fn));
     assert_eq!(result["a"].0, 0.0);
     assert_eq!(result["b"].0, 1.0);
@@ -2791,9 +2769,7 @@ fn bellman_ford_uses_weight_function() {
     g.set_edge("a", "c", Some(2.0), None);
     g.set_edge("b", "d", Some(3.0), None);
     g.set_edge("c", "d", Some(3.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::bellman_ford(&g, "a", weight_fn, None);
     assert_eq!(result["a"].0, 0.0);
     assert_eq!(result["b"].0, 1.0);
@@ -2815,9 +2791,7 @@ fn bellman_ford_works_with_negative_edges() {
     g.set_edge("d", "c", Some(5.0), None);
     g.set_edge("d", "b", Some(1.0), None);
     g.set_edge("e", "d", Some(-3.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let result = alg::bellman_ford(&g, "a", weight_fn, None);
     assert_eq!(result["a"].0, 0.0);
     assert_eq!(result["b"].0, -1.0);
@@ -2840,9 +2814,7 @@ fn bellman_ford_throws_for_negative_cycle() {
     g.set_edge("d", "e", Some(4.0), None);
     g.set_edge("d", "b", Some(1.0), None);
     g.set_edge("c", "f", Some(8.0), None);
-    let weight_fn = |e: &Edge| {
-        *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0)
-    };
+    let weight_fn = |e: &Edge| *g.edge(&e.v, &e.w, e.name.as_deref()).unwrap_or(&1.0);
     let _result = alg::bellman_ford(&g, "a", weight_fn, None);
 }
 

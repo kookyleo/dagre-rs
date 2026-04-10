@@ -19,7 +19,12 @@ fn set_node(g: &mut Graph<NodeLabel, EdgeLabel>, v: &str, w: f64, h: f64) {
 }
 
 fn set_edge(g: &mut Graph<NodeLabel, EdgeLabel>, v: &str, w: &str) {
-    g.set_edge(v.to_string(), w.to_string(), Some(EdgeLabel::default()), None);
+    g.set_edge(
+        v.to_string(),
+        w.to_string(),
+        Some(EdgeLabel::default()),
+        None,
+    );
 }
 
 // ============================================================
@@ -252,7 +257,12 @@ fn position_y_increases_with_rank() {
 
     let ya = g.node("a").unwrap().y.unwrap();
     let yb = g.node("b").unwrap().y.unwrap();
-    assert!(yb > ya, "y of rank 1 ({}) should be > y of rank 0 ({})", yb, ya);
+    assert!(
+        yb > ya,
+        "y of rank 1 ({}) should be > y of rank 0 ({})",
+        yb,
+        ya
+    );
 }
 
 // ============================================================
@@ -490,7 +500,11 @@ fn acyclic_breaks_cycles() {
 
     // After acyclic run, graph should have no cycles
     let cycles = crate::graph::alg::find_cycles(&g);
-    assert!(cycles.is_empty(), "graph should be acyclic after run, found cycles: {:?}", cycles);
+    assert!(
+        cycles.is_empty(),
+        "graph should be acyclic after run, found cycles: {:?}",
+        cycles
+    );
 }
 
 #[test]
@@ -761,7 +775,12 @@ fn rank_network_simplex_uses_minlen() {
     set_edge(&mut g, "a", "b");
     let mut el = EdgeLabel::default();
     el.minlen = 2;
-    g.set_edge("a".to_string(), "c".to_string(), Some(EdgeLabel::default()), None);
+    g.set_edge(
+        "a".to_string(),
+        "c".to_string(),
+        Some(EdgeLabel::default()),
+        None,
+    );
     g.set_edge("c".to_string(), "d".to_string(), Some(el), None);
     set_edge(&mut g, "b", "d");
 
@@ -771,7 +790,13 @@ fn rank_network_simplex_uses_minlen() {
     let ra = g.node("a").unwrap().rank.unwrap();
     let rc = g.node("c").unwrap().rank.unwrap();
     let rd = g.node("d").unwrap().rank.unwrap();
-    assert!(rd - rc >= 2, "d.rank - c.rank should be >= 2, got {} - {} = {}", rd, rc, rd - rc);
+    assert!(
+        rd - rc >= 2,
+        "d.rank - c.rank should be >= 2, got {} - {} = {}",
+        rd,
+        rc,
+        rd - rc
+    );
     assert_eq!(ra, 0);
 }
 
@@ -1133,15 +1158,27 @@ fn intersect_rect_touches_border() {
     rect.height = 1.0;
 
     // Test various points and verify the result touches the border
-    for &(px, py) in &[(2.0, 6.0), (2.0, -6.0), (6.0, 2.0), (-6.0, 2.0), (5.0, 0.0), (0.0, 5.0)] {
+    for &(px, py) in &[
+        (2.0, 6.0),
+        (2.0, -6.0),
+        (6.0, 2.0),
+        (-6.0, 2.0),
+        (5.0, 0.0),
+        (0.0, 5.0),
+    ] {
         let point = Point::new(px, py);
         let cross = util::intersect_rect(&rect, &point);
         // Either x or y should be at the border
         let at_x_border = (cross.x.abs() - 0.5).abs() < 0.01;
         let at_y_border = (cross.y.abs() - 0.5).abs() < 0.01;
-        assert!(at_x_border || at_y_border,
+        assert!(
+            at_x_border || at_y_border,
             "Point ({}, {}) => ({}, {}) should touch border",
-            px, py, cross.x, cross.y);
+            px,
+            py,
+            cross.x,
+            cross.y
+        );
     }
 }
 
@@ -1153,8 +1190,10 @@ fn intersect_rect_touches_border() {
 fn build_layer_matrix_with_three_layers() {
     let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
     for (v, rank, order) in &[
-        ("a", 0, 0), ("b", 0, 1),
-        ("c", 1, 0), ("d", 1, 1),
+        ("a", 0, 0),
+        ("b", 0, 1),
+        ("c", 1, 0),
+        ("d", 1, 1),
         ("e", 2, 0),
     ] {
         let mut label = NodeLabel::default();
@@ -1287,7 +1326,14 @@ fn layout_longer_chain() {
         .collect();
 
     for i in 1..ys.len() {
-        assert!(ys[i] > ys[i - 1], "y[{}]={} should be > y[{}]={}", i, ys[i], i - 1, ys[i - 1]);
+        assert!(
+            ys[i] > ys[i - 1],
+            "y[{}]={} should be > y[{}]={}",
+            i,
+            ys[i],
+            i - 1,
+            ys[i - 1]
+        );
     }
 }
 
@@ -1356,7 +1402,12 @@ fn layout_nodes_same_rank_different_x() {
     // b and c are on the same rank; they should have different x coordinates
     let xb = g.node("b").unwrap().x.unwrap();
     let xc = g.node("c").unwrap().x.unwrap();
-    assert!((xb - xc).abs() > 1.0, "b.x ({}) and c.x ({}) should differ", xb, xc);
+    assert!(
+        (xb - xc).abs() > 1.0,
+        "b.x ({}) and c.x ({}) should differ",
+        xb,
+        xc
+    );
 }
 
 #[test]
@@ -1609,7 +1660,10 @@ fn nesting_run_adds_border_nodes_to_top_and_bottom_of_subgraph() {
 
     let sg1 = g.node("sg1").unwrap();
     let border_top = sg1.border_top.clone().expect("border_top should be set");
-    let border_bottom = sg1.border_bottom.clone().expect("border_bottom should be set");
+    let border_bottom = sg1
+        .border_bottom
+        .clone()
+        .expect("border_bottom should be set");
     assert_eq!(g.parent(&border_top), Some("sg1"));
     assert_eq!(g.parent(&border_bottom), Some("sg1"));
 
@@ -1691,7 +1745,12 @@ fn nesting_run_adds_edge_from_root_to_top_of_top_level_subgraphs() {
     g.set_parent("a", Some("sg1"));
     nesting_graph::run(&mut g);
 
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     let border_top = g.node("sg1").unwrap().border_top.clone().unwrap();
     let out = g.out_edges(&root, Some(&border_top)).unwrap_or_default();
     assert_eq!(out.len(), 1);
@@ -1705,7 +1764,12 @@ fn nesting_run_adds_edge_from_root_to_each_node_correct_minlen_1() {
     g.set_node("a".to_string(), Some(NodeLabel::default()));
     nesting_graph::run(&mut g);
 
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     let out = g.out_edges(&root, Some("a")).unwrap_or_default();
     assert_eq!(out.len(), 1);
     let e = &out[0];
@@ -1722,7 +1786,12 @@ fn nesting_run_adds_edge_from_root_to_each_node_correct_minlen_2() {
     g.set_parent("a", Some("sg1"));
     nesting_graph::run(&mut g);
 
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     let out = g.out_edges(&root, Some("a")).unwrap_or_default();
     assert_eq!(out.len(), 1);
     let e = &out[0];
@@ -1740,7 +1809,12 @@ fn nesting_run_adds_edge_from_root_to_each_node_correct_minlen_3() {
     g.set_parent("a", Some("sg2"));
     nesting_graph::run(&mut g);
 
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     let out = g.out_edges(&root, Some("a")).unwrap_or_default();
     assert_eq!(out.len(), 1);
     let e = &out[0];
@@ -1756,7 +1830,12 @@ fn nesting_run_does_not_add_edge_from_root_to_itself() {
     g.set_node("a".to_string(), Some(NodeLabel::default()));
     nesting_graph::run(&mut g);
 
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     let out = g.out_edges(&root, Some(&root)).unwrap_or_default();
     assert!(out.is_empty());
 }
@@ -1810,7 +1889,12 @@ fn nesting_run_sets_minlen_correctly_for_nested_sg_border_to_children() {
     g.set_parent("b", Some("sg2"));
     nesting_graph::run(&mut g);
 
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     let sg1_top = g.node("sg1").unwrap().border_top.clone().unwrap();
     let sg1_bot = g.node("sg1").unwrap().border_bottom.clone().unwrap();
     let sg2_top = g.node("sg2").unwrap().border_top.clone().unwrap();
@@ -1835,7 +1919,12 @@ fn nesting_cleanup_removes_nesting_edges() {
     el.minlen = 1;
     g.set_edge("a", "b", Some(el), None);
     nesting_graph::run(&mut g);
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     nesting_graph::cleanup(&mut g, &root);
     let succs = g.successors("a").unwrap_or_default();
     assert_eq!(succs, vec!["b"]);
@@ -1848,7 +1937,12 @@ fn nesting_cleanup_removes_root_node() {
     g.set_node("a".to_string(), Some(NodeLabel::default()));
     g.set_parent("a", Some("sg1"));
     nesting_graph::run(&mut g);
-    let root = g.graph_label::<GraphLabel>().unwrap().nesting_root.clone().unwrap();
+    let root = g
+        .graph_label::<GraphLabel>()
+        .unwrap()
+        .nesting_root
+        .clone()
+        .unwrap();
     nesting_graph::cleanup(&mut g, &root);
     // sg1 + sg1_border_top + sg1_border_bottom + "a" = 4
     assert_eq!(g.node_count(), 4);
@@ -1964,8 +2058,18 @@ fn normalize_undo_restores_multi_edges() {
     set_node(&mut g, "b", 10.0, 10.0);
     g.node_mut("a").unwrap().rank = Some(0);
     g.node_mut("b").unwrap().rank = Some(2);
-    g.set_edge("a".to_string(), "b".to_string(), Some(EdgeLabel::default()), Some("bar"));
-    g.set_edge("a".to_string(), "b".to_string(), Some(EdgeLabel::default()), Some("foo"));
+    g.set_edge(
+        "a".to_string(),
+        "b".to_string(),
+        Some(EdgeLabel::default()),
+        Some("bar"),
+    );
+    g.set_edge(
+        "a".to_string(),
+        "b".to_string(),
+        Some(EdgeLabel::default()),
+        Some("foo"),
+    );
 
     let mut chains = Vec::new();
     normalize::run(&mut g, &mut chains);
@@ -2213,7 +2317,10 @@ fn parent_dummy_chains_handles_nested_subgraphs() {
     if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
         gl.dummy_chains = vec!["d1".to_string()];
     }
-    g.set_path(&["a", "d1", "d2", "d3", "d4", "d5", "b"], Some(EdgeLabel::default()));
+    g.set_path(
+        &["a", "d1", "d2", "d3", "d4", "d5", "b"],
+        Some(EdgeLabel::default()),
+    );
 
     parent_dummy_chains::parent_dummy_chains(&mut g);
     assert_eq!(g.parent("d1"), Some("sg2"));
@@ -2366,7 +2473,8 @@ fn parent_dummy_chains_handles_lca_not_root_2() {
 fn greedy_fas_returns_empty_for_empty_graph() {
     let g: Graph<NodeLabel, EdgeLabel> = Graph::new();
     let weight_fn = |e: &crate::graph::Edge| -> i32 {
-        g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        g.edge(&e.v, &e.w, e.name.as_deref())
+            .map_or(1, |l| l.weight)
     };
     let fas = acyclic::greedy_fas(&g, &weight_fn);
     assert!(fas.is_empty());
@@ -2377,7 +2485,8 @@ fn greedy_fas_returns_empty_for_single_node() {
     let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
     g.set_node("a".to_string(), Some(NodeLabel::default()));
     let weight_fn = |e: &crate::graph::Edge| -> i32 {
-        g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        g.edge(&e.v, &e.w, e.name.as_deref())
+            .map_or(1, |l| l.weight)
     };
     let fas = acyclic::greedy_fas(&g, &weight_fn);
     assert!(fas.is_empty());
@@ -2391,7 +2500,8 @@ fn greedy_fas_returns_empty_for_acyclic_graph() {
     g.set_edge("b", "d", Some(EdgeLabel::default()), None);
     g.set_edge("a", "e", Some(EdgeLabel::default()), None);
     let weight_fn = |e: &crate::graph::Edge| -> i32 {
-        g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+        g.edge(&e.v, &e.w, e.name.as_deref())
+            .map_or(1, |l| l.weight)
     };
     let fas = acyclic::greedy_fas(&g, &weight_fn);
     assert!(fas.is_empty());
@@ -2404,7 +2514,8 @@ fn greedy_fas_returns_single_edge_for_simple_cycle() {
     g.set_edge("b", "a", Some(EdgeLabel::default()), None);
     let fas = {
         let weight_fn = |e: &crate::graph::Edge| -> i32 {
-            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+            g.edge(&e.v, &e.w, e.name.as_deref())
+                .map_or(1, |l| l.weight)
         };
         acyclic::greedy_fas(&g, &weight_fn)
     };
@@ -2428,7 +2539,8 @@ fn greedy_fas_returns_single_edge_in_4_node_cycle() {
     let m = g.edge_count();
     let fas = {
         let weight_fn = |e: &crate::graph::Edge| -> i32 {
-            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+            g.edge(&e.v, &e.w, e.name.as_deref())
+                .map_or(1, |l| l.weight)
         };
         acyclic::greedy_fas(&g, &weight_fn)
     };
@@ -2456,7 +2568,8 @@ fn greedy_fas_returns_two_edges_for_two_4_node_cycles() {
     let m = g.edge_count();
     let fas = {
         let weight_fn = |e: &crate::graph::Edge| -> i32 {
-            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+            g.edge(&e.v, &e.w, e.name.as_deref())
+                .map_or(1, |l| l.weight)
         };
         acyclic::greedy_fas(&g, &weight_fn)
     };
@@ -2479,7 +2592,8 @@ fn greedy_fas_works_with_weighted_edges() {
     g1.set_edge("n2", "n1", Some(el2), None);
     let fas1 = {
         let weight_fn = |e: &crate::graph::Edge| -> i32 {
-            g1.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+            g1.edge(&e.v, &e.w, e.name.as_deref())
+                .map_or(1, |l| l.weight)
         };
         acyclic::greedy_fas(&g1, &weight_fn)
     };
@@ -2497,7 +2611,8 @@ fn greedy_fas_works_with_weighted_edges() {
     g2.set_edge("n2", "n1", Some(el4), None);
     let fas2 = {
         let weight_fn = |e: &crate::graph::Edge| -> i32 {
-            g2.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+            g2.edge(&e.v, &e.w, e.name.as_deref())
+                .map_or(1, |l| l.weight)
         };
         acyclic::greedy_fas(&g2, &weight_fn)
     };
@@ -2524,13 +2639,17 @@ fn greedy_fas_works_for_multigraphs() {
     g.set_edge("b", "a", Some(el3), Some("baz"));
     let fas = {
         let weight_fn = |e: &crate::graph::Edge| -> i32 {
-            g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight)
+            g.edge(&e.v, &e.w, e.name.as_deref())
+                .map_or(1, |l| l.weight)
         };
         acyclic::greedy_fas(&g, &weight_fn)
     };
     let mut fas_sorted = fas.clone();
     fas_sorted.sort_by(|a, b| {
-        a.name.as_deref().unwrap_or("").cmp(&b.name.as_deref().unwrap_or(""))
+        a.name
+            .as_deref()
+            .unwrap_or("")
+            .cmp(&b.name.as_deref().unwrap_or(""))
     });
     assert_eq!(fas_sorted.len(), 2);
     assert_eq!(fas_sorted[0].v, "b");
@@ -2545,8 +2664,8 @@ fn greedy_fas_works_for_multigraphs() {
 // Ported from dagre-js: order/resolve-conflicts-test.ts
 // ============================================================
 
-use order::resolve_conflicts::{resolve_conflicts, ResolvedEntry};
 use order::barycenter::BarycenterEntry;
+use order::resolve_conflicts::{ResolvedEntry, resolve_conflicts};
 
 fn sort_resolved(mut entries: Vec<ResolvedEntry>) -> Vec<ResolvedEntry> {
     entries.sort_by(|a, b| a.vs[0].cmp(&b.vs[0]));
@@ -2557,8 +2676,16 @@ fn sort_resolved(mut entries: Vec<ResolvedEntry>) -> Vec<ResolvedEntry> {
 fn resolve_conflicts_returns_nodes_unchanged_no_constraints() {
     let cg: Graph<(), ()> = Graph::new();
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(3),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = sort_resolved(resolve_conflicts(&input, &cg));
     assert_eq!(result.len(), 2);
@@ -2575,8 +2702,16 @@ fn resolve_conflicts_returns_nodes_unchanged_no_conflicts() {
     let mut cg: Graph<(), ()> = Graph::new();
     cg.set_edge("b", "a", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(3),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = sort_resolved(resolve_conflicts(&input, &cg));
     assert_eq!(result.len(), 2);
@@ -2593,8 +2728,16 @@ fn resolve_conflicts_coalesces_nodes_on_conflict() {
     let mut cg: Graph<(), ()> = Graph::new();
     cg.set_edge("a", "b", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(3),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = resolve_conflicts(&input, &cg);
     assert_eq!(result.len(), 1);
@@ -2609,10 +2752,26 @@ fn resolve_conflicts_coalesces_nodes_on_conflict_2() {
     let mut cg: Graph<(), ()> = Graph::new();
     cg.set_path(&["a", "b", "c", "d"], None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(4.0), weight: Some(1) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(3.0), weight: Some(1) },
-        BarycenterEntry { v: "c".to_string(), barycenter: Some(2.0), weight: Some(1) },
-        BarycenterEntry { v: "d".to_string(), barycenter: Some(1.0), weight: Some(1) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(4.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(3.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "c".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "d".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(1),
+        },
     ];
     let result = resolve_conflicts(&input, &cg);
     assert_eq!(result.len(), 1);
@@ -2628,9 +2787,21 @@ fn resolve_conflicts_multiple_constraints_same_target_1() {
     cg.set_edge("a", "c", None, None);
     cg.set_edge("b", "c", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(4.0), weight: Some(1) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(3.0), weight: Some(1) },
-        BarycenterEntry { v: "c".to_string(), barycenter: Some(2.0), weight: Some(1) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(4.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(3.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "c".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(1),
+        },
     ];
     let result = resolve_conflicts(&input, &cg);
     assert_eq!(result.len(), 1);
@@ -2653,10 +2824,26 @@ fn resolve_conflicts_multiple_constraints_same_target_2() {
     cg.set_edge("b", "c", None, None);
     cg.set_edge("c", "d", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(4.0), weight: Some(1) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(3.0), weight: Some(1) },
-        BarycenterEntry { v: "c".to_string(), barycenter: Some(2.0), weight: Some(1) },
-        BarycenterEntry { v: "d".to_string(), barycenter: Some(1.0), weight: Some(1) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(4.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(3.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "c".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(1),
+        },
+        BarycenterEntry {
+            v: "d".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(1),
+        },
     ];
     let result = resolve_conflicts(&input, &cg);
     assert_eq!(result.len(), 1);
@@ -2677,8 +2864,16 @@ fn resolve_conflicts_multiple_constraints_same_target_2() {
 fn resolve_conflicts_does_nothing_to_node_without_barycenter_or_constraint() {
     let cg: Graph<(), ()> = Graph::new();
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: None, weight: None },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: None,
+            weight: None,
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = sort_resolved(resolve_conflicts(&input, &cg));
     assert_eq!(result.len(), 2);
@@ -2695,8 +2890,16 @@ fn resolve_conflicts_treats_no_barycenter_as_always_violating_1() {
     let mut cg: Graph<(), ()> = Graph::new();
     cg.set_edge("a", "b", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: None, weight: None },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: None,
+            weight: None,
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = resolve_conflicts(&input, &cg);
     assert_eq!(result.len(), 1);
@@ -2710,8 +2913,16 @@ fn resolve_conflicts_treats_no_barycenter_as_always_violating_2() {
     let mut cg: Graph<(), ()> = Graph::new();
     cg.set_edge("b", "a", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: None, weight: None },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: None,
+            weight: None,
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = resolve_conflicts(&input, &cg);
     assert_eq!(result.len(), 1);
@@ -2725,8 +2936,16 @@ fn resolve_conflicts_ignores_edges_not_related_to_entries() {
     let mut cg: Graph<(), ()> = Graph::new();
     cg.set_edge("c", "d", None, None);
     let input = vec![
-        BarycenterEntry { v: "a".to_string(), barycenter: Some(2.0), weight: Some(3) },
-        BarycenterEntry { v: "b".to_string(), barycenter: Some(1.0), weight: Some(2) },
+        BarycenterEntry {
+            v: "a".to_string(),
+            barycenter: Some(2.0),
+            weight: Some(3),
+        },
+        BarycenterEntry {
+            v: "b".to_string(),
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = sort_resolved(resolve_conflicts(&input, &cg));
     assert_eq!(result.len(), 2);
@@ -2747,8 +2966,18 @@ use order::sort::sort as order_sort;
 #[test]
 fn sort_sorts_nodes_by_barycenter() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(2.0), weight: Some(3) },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(2) },
+        ResolvedEntry {
+            vs: vec!["a".to_string()],
+            i: 0,
+            barycenter: Some(2.0),
+            weight: Some(3),
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 1,
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = order_sort(&input, false);
     assert_eq!(result.vs, vec!["b", "a"]);
@@ -2760,8 +2989,18 @@ fn sort_sorts_nodes_by_barycenter() {
 #[test]
 fn sort_can_sort_super_nodes() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string(), "c".to_string(), "d".to_string()], i: 0, barycenter: Some(2.0), weight: Some(3) },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(2) },
+        ResolvedEntry {
+            vs: vec!["a".to_string(), "c".to_string(), "d".to_string()],
+            i: 0,
+            barycenter: Some(2.0),
+            weight: Some(3),
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 1,
+            barycenter: Some(1.0),
+            weight: Some(2),
+        },
     ];
     let result = order_sort(&input, false);
     assert_eq!(result.vs, vec!["b", "a", "c", "d"]);
@@ -2773,8 +3012,18 @@ fn sort_can_sort_super_nodes() {
 #[test]
 fn sort_biases_left_by_default() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(1.0), weight: Some(1) },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(1) },
+        ResolvedEntry {
+            vs: vec!["a".to_string()],
+            i: 0,
+            barycenter: Some(1.0),
+            weight: Some(1),
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 1,
+            barycenter: Some(1.0),
+            weight: Some(1),
+        },
     ];
     let result = order_sort(&input, false);
     assert_eq!(result.vs, vec!["a", "b"]);
@@ -2785,8 +3034,18 @@ fn sort_biases_left_by_default() {
 #[test]
 fn sort_biases_right_if_bias_right_true() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(1.0), weight: Some(1) },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(1.0), weight: Some(1) },
+        ResolvedEntry {
+            vs: vec!["a".to_string()],
+            i: 0,
+            barycenter: Some(1.0),
+            weight: Some(1),
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 1,
+            barycenter: Some(1.0),
+            weight: Some(1),
+        },
     ];
     let result = order_sort(&input, true);
     assert_eq!(result.vs, vec!["b", "a"]);
@@ -2797,10 +3056,30 @@ fn sort_biases_right_if_bias_right_true() {
 #[test]
 fn sort_can_sort_nodes_without_barycenter() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(2.0), weight: Some(1) },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 1, barycenter: Some(6.0), weight: Some(1) },
-        ResolvedEntry { vs: vec!["c".to_string()], i: 2, barycenter: None, weight: None },
-        ResolvedEntry { vs: vec!["d".to_string()], i: 3, barycenter: Some(3.0), weight: Some(1) },
+        ResolvedEntry {
+            vs: vec!["a".to_string()],
+            i: 0,
+            barycenter: Some(2.0),
+            weight: Some(1),
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 1,
+            barycenter: Some(6.0),
+            weight: Some(1),
+        },
+        ResolvedEntry {
+            vs: vec!["c".to_string()],
+            i: 2,
+            barycenter: None,
+            weight: None,
+        },
+        ResolvedEntry {
+            vs: vec!["d".to_string()],
+            i: 3,
+            barycenter: Some(3.0),
+            weight: Some(1),
+        },
     ];
     let result = order_sort(&input, false);
     assert_eq!(result.vs, vec!["a", "d", "c", "b"]);
@@ -2812,10 +3091,30 @@ fn sort_can_sort_nodes_without_barycenter() {
 #[test]
 fn sort_handles_no_barycenters_for_any_nodes() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: None, weight: None },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 3, barycenter: None, weight: None },
-        ResolvedEntry { vs: vec!["c".to_string()], i: 2, barycenter: None, weight: None },
-        ResolvedEntry { vs: vec!["d".to_string()], i: 1, barycenter: None, weight: None },
+        ResolvedEntry {
+            vs: vec!["a".to_string()],
+            i: 0,
+            barycenter: None,
+            weight: None,
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 3,
+            barycenter: None,
+            weight: None,
+        },
+        ResolvedEntry {
+            vs: vec!["c".to_string()],
+            i: 2,
+            barycenter: None,
+            weight: None,
+        },
+        ResolvedEntry {
+            vs: vec!["d".to_string()],
+            i: 1,
+            barycenter: None,
+            weight: None,
+        },
     ];
     let result = order_sort(&input, false);
     assert_eq!(result.vs, vec!["a", "d", "c", "b"]);
@@ -2826,10 +3125,30 @@ fn sort_handles_no_barycenters_for_any_nodes() {
 #[test]
 fn sort_handles_barycenter_of_0() {
     let input = vec![
-        ResolvedEntry { vs: vec!["a".to_string()], i: 0, barycenter: Some(0.0), weight: Some(1) },
-        ResolvedEntry { vs: vec!["b".to_string()], i: 3, barycenter: None, weight: None },
-        ResolvedEntry { vs: vec!["c".to_string()], i: 2, barycenter: None, weight: None },
-        ResolvedEntry { vs: vec!["d".to_string()], i: 1, barycenter: None, weight: None },
+        ResolvedEntry {
+            vs: vec!["a".to_string()],
+            i: 0,
+            barycenter: Some(0.0),
+            weight: Some(1),
+        },
+        ResolvedEntry {
+            vs: vec!["b".to_string()],
+            i: 3,
+            barycenter: None,
+            weight: None,
+        },
+        ResolvedEntry {
+            vs: vec!["c".to_string()],
+            i: 2,
+            barycenter: None,
+            weight: None,
+        },
+        ResolvedEntry {
+            vs: vec!["d".to_string()],
+            i: 1,
+            barycenter: None,
+            weight: None,
+        },
     ];
     let result = order_sort(&input, false);
     assert_eq!(result.vs, vec!["a", "d", "c", "b"]);
@@ -2841,7 +3160,7 @@ fn sort_handles_barycenter_of_0() {
 // Ported from dagre-js: order/build-layer-graph-test.ts
 // ============================================================
 
-use order::build_layer_graph::{build_layer_graph, get_root, Relationship};
+use order::build_layer_graph::{Relationship, build_layer_graph, get_root};
 
 #[test]
 fn build_layer_graph_places_movable_nodes_under_root() {
@@ -3049,7 +3368,10 @@ fn build_layer_graph_preserves_hierarchy_for_movable_layer() {
     g.set_parent("a", Some("sg"));
     g.set_parent("b", Some("sg"));
 
-    let nodes: Vec<String> = vec!["a", "b", "c", "sg"].iter().map(|s| s.to_string()).collect();
+    let nodes: Vec<String> = vec!["a", "b", "c", "sg"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let lg = build_layer_graph(&g, 0, Relationship::InEdges, &nodes);
     let root = get_root(&lg);
     let root_children = lg.children(Some(&root));
@@ -3184,7 +3506,10 @@ fn add_subgraph_constraints_flat_nodes_no_change() {
         compound: true,
     });
     let mut cg: Graph<(), ()> = Graph::new();
-    let vs: Vec<String> = vec!["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+    let vs: Vec<String> = vec!["a", "b", "c", "d"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for v in &vs {
         graph.set_node(v.clone(), Some(NodeLabel::default()));
     }
@@ -3237,7 +3562,9 @@ fn add_subgraph_constraints_works_for_multiple_levels() {
     });
     let mut cg: Graph<(), ()> = Graph::new();
     let vs: Vec<String> = vec!["a", "b", "c", "d", "e", "f", "g", "h"]
-        .iter().map(|s| s.to_string()).collect();
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for v in &vs {
         graph.set_node(v.clone(), Some(NodeLabel::default()));
     }
@@ -3582,8 +3909,14 @@ fn add_border_segments_adds_border_for_single_rank_subgraph() {
     add_border_segments::add_border_segments(&mut g);
 
     let sg_node = g.node("sg").unwrap();
-    assert!(!sg_node.border_left.is_empty(), "border_left should be populated");
-    assert!(!sg_node.border_right.is_empty(), "border_right should be populated");
+    assert!(
+        !sg_node.border_left.is_empty(),
+        "border_left should be populated"
+    );
+    assert!(
+        !sg_node.border_right.is_empty(),
+        "border_right should be populated"
+    );
 
     // The border node at index 0 corresponds to rank 1
     let bl = &sg_node.border_left[0];
@@ -3688,14 +4021,21 @@ fn acyclic_dfs_does_not_change_acyclic_diamond() {
     g.set_path(&["a", "b", "d"], Some(EdgeLabel::default()));
     g.set_path(&["a", "c", "d"], Some(EdgeLabel::default()));
     acyclic::run(&mut g, None);
-    let mut edges: Vec<(String, String)> = g.edges().iter().map(|e| (e.v.clone(), e.w.clone())).collect();
+    let mut edges: Vec<(String, String)> = g
+        .edges()
+        .iter()
+        .map(|e| (e.v.clone(), e.w.clone()))
+        .collect();
     edges.sort();
-    assert_eq!(edges, vec![
-        ("a".to_string(), "b".to_string()),
-        ("a".to_string(), "c".to_string()),
-        ("b".to_string(), "d".to_string()),
-        ("c".to_string(), "d".to_string()),
-    ]);
+    assert_eq!(
+        edges,
+        vec![
+            ("a".to_string(), "b".to_string()),
+            ("a".to_string(), "c".to_string()),
+            ("b".to_string(), "d".to_string()),
+            ("c".to_string(), "d".to_string()),
+        ]
+    );
 }
 
 #[test]
@@ -3842,14 +4182,25 @@ fn util_intersect_rect_creates_slope_intersecting_center() {
     rect.width = 1.0;
     rect.height = 1.0;
 
-    for &(px, py) in &[(2.0, 6.0), (2.0, -6.0), (6.0, 2.0), (-6.0, 2.0), (5.0, 0.0), (0.0, 5.0)] {
+    for &(px, py) in &[
+        (2.0, 6.0),
+        (2.0, -6.0),
+        (6.0, 2.0),
+        (-6.0, 2.0),
+        (5.0, 0.0),
+        (0.0, 5.0),
+    ] {
         let point = Point::new(px, py);
         let cross = util::intersect_rect(&rect, &point);
         if cross.x != px {
             let m = (cross.y - py) / (cross.x - px);
             let expected = m * (cross.x - 0.0);
-            assert!((cross.y - 0.0 - expected).abs() < 0.01,
-                "slope check failed for ({}, {})", px, py);
+            assert!(
+                (cross.y - 0.0 - expected).abs() < 0.01,
+                "slope check failed for ({}, {})",
+                px,
+                py
+            );
         }
     }
 }
@@ -3858,8 +4209,10 @@ fn util_intersect_rect_creates_slope_intersecting_center() {
 fn util_build_layer_matrix_creates_correct_matrix() {
     let mut g: Graph<NodeLabel, EdgeLabel> = Graph::new();
     for (v, rank, order) in &[
-        ("a", 0, 0), ("b", 0, 1),
-        ("c", 1, 0), ("d", 1, 1),
+        ("a", 0, 0),
+        ("b", 0, 1),
+        ("c", 1, 0),
+        ("d", 1, 1),
         ("e", 2, 0),
     ] {
         let mut label = NodeLabel::default();
@@ -3868,11 +4221,7 @@ fn util_build_layer_matrix_creates_correct_matrix() {
         g.set_node(v.to_string(), Some(label));
     }
     let layers = util::build_layer_matrix(&g);
-    assert_eq!(layers, vec![
-        vec!["a", "b"],
-        vec!["c", "d"],
-        vec!["e"],
-    ]);
+    assert_eq!(layers, vec![vec!["a", "b"], vec!["c", "d"], vec!["e"],]);
 }
 
 // ============================================================
@@ -4031,7 +4380,7 @@ fn layout_adds_rectangle_intersects_for_edges() {
     let points = &g.edge("a", "b", None).unwrap().points;
     assert_eq!(points.len(), 3);
     assert_eq!(points[0].x, 50.0);
-    assert_eq!(points[0].y, 100.0);       // bottom of a
+    assert_eq!(points[0].y, 100.0); // bottom of a
     assert_eq!(points[1].x, 50.0);
     assert_eq!(points[1].y, 100.0 + 100.0); // midpoint
     assert_eq!(points[2].x, 50.0);
@@ -4059,15 +4408,15 @@ fn layout_adds_rectangle_intersects_for_multi_rank_edges() {
     let points = &g.edge("a", "b", None).unwrap().points;
     assert_eq!(points.len(), 5);
     assert_eq!(points[0].x, 50.0);
-    assert_eq!(points[0].y, 100.0);         // bottom of a
+    assert_eq!(points[0].y, 100.0); // bottom of a
     assert_eq!(points[1].x, 50.0);
-    assert_eq!(points[1].y, 200.0);         // bend #1
+    assert_eq!(points[1].y, 200.0); // bend #1
     assert_eq!(points[2].x, 50.0);
-    assert_eq!(points[2].y, 300.0);         // label point
+    assert_eq!(points[2].y, 300.0); // label point
     assert_eq!(points[3].x, 50.0);
-    assert_eq!(points[3].y, 400.0);         // bend #2
+    assert_eq!(points[3].y, 400.0); // bend #2
     assert_eq!(points[4].x, 50.0);
-    assert_eq!(points[4].y, 500.0);         // top of b
+    assert_eq!(points[4].y, 500.0); // top of b
 }
 
 #[test]
@@ -4167,8 +4516,20 @@ fn layout_can_layout_subgraphs_with_different_rankdirs() {
 
         let sg = g.node("sg").unwrap();
         assert!(sg.width > 50.0, "sg width should be > 50 for {:?}", rankdir);
-        assert!(sg.height > 50.0, "sg height should be > 50 for {:?}", rankdir);
-        assert!(sg.x.unwrap() > 25.0, "sg x should be > 25 for {:?}", rankdir);
-        assert!(sg.y.unwrap() > 25.0, "sg y should be > 25 for {:?}", rankdir);
+        assert!(
+            sg.height > 50.0,
+            "sg height should be > 50 for {:?}",
+            rankdir
+        );
+        assert!(
+            sg.x.unwrap() > 25.0,
+            "sg x should be > 25 for {:?}",
+            rankdir
+        );
+        assert!(
+            sg.y.unwrap() > 25.0,
+            "sg y should be > 25 for {:?}",
+            rankdir
+        );
     }
 }

@@ -5,9 +5,9 @@
 //!
 //! Ported from dagre.js add-border-segments.ts
 
-use crate::graph::Graph;
 use super::types::*;
 use super::util::add_border_node;
+use crate::graph::Graph;
 
 /// Add border segments (left/right border node chains) for each compound node.
 pub(crate) fn add_border_segments(g: &mut Graph<NodeLabel, EdgeLabel>) {
@@ -74,9 +74,6 @@ fn add_border_node_for(
 
     // Chain edge from previous border node to this one
     if let Some(prev) = prev_border {
-        let mut el = EdgeLabel::default();
-        el.weight = 1;
-        el.minlen = 1;
-        g.set_edge(prev, node_id, Some(el), None);
+        g.set_edge(prev, node_id, Some(EdgeLabel::default()), None);
     }
 }

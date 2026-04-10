@@ -53,32 +53,22 @@ pub struct SelfEdge {
 }
 
 /// Direction for rank layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RankDir {
+    #[default]
     TB,
     BT,
     LR,
     RL,
 }
 
-impl Default for RankDir {
-    fn default() -> Self {
-        Self::TB
-    }
-}
-
 /// Ranker algorithm selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Ranker {
+    #[default]
     NetworkSimplex,
     TightTree,
     LongestPath,
-}
-
-impl Default for Ranker {
-    fn default() -> Self {
-        Self::NetworkSimplex
-    }
 }
 
 /// Acyclic algorithm selection.
@@ -97,17 +87,12 @@ pub enum Align {
 }
 
 /// Vertical alignment within each rank.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RankAlign {
     Top,
+    #[default]
     Center,
     Bottom,
-}
-
-impl Default for RankAlign {
-    fn default() -> Self {
-        Self::Center
-    }
 }
 
 /// Graph-level label with layout configuration.
@@ -167,17 +152,12 @@ pub enum BorderType {
 }
 
 /// Label position for edge labels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LabelPos {
     Left,
+    #[default]
     Center,
     Right,
-}
-
-impl Default for LabelPos {
-    fn default() -> Self {
-        Self::Center
-    }
 }
 
 /// Node label with all properties used during layout.

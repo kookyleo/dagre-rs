@@ -38,9 +38,7 @@ pub(crate) fn sort_subgraph(
 
     // Exclude border nodes from the movable set
     if bl.is_some() {
-        movable.retain(|w| {
-            Some(w.as_str()) != bl.as_deref() && Some(w.as_str()) != br.as_deref()
-        });
+        movable.retain(|w| Some(w.as_str()) != bl.as_deref() && Some(w.as_str()) != br.as_deref());
     }
 
     // Compute barycenters for the movable nodes
@@ -96,15 +94,10 @@ pub(crate) fn sort_subgraph(
         // Adjust barycenter to include border predecessors
         let bl_preds = g.predecessors(bl_v).unwrap_or_default();
         if !bl_preds.is_empty() {
-            let bl_pred_order = g
-                .node(&bl_preds[0])
-                .and_then(|n| n.order)
-                .unwrap_or(0) as f64;
+            let bl_pred_order = g.node(&bl_preds[0]).and_then(|n| n.order).unwrap_or(0) as f64;
             let br_preds = g.predecessors(br_v).unwrap_or_default();
             let br_pred_order = if !br_preds.is_empty() {
-                g.node(&br_preds[0])
-                    .and_then(|n| n.order)
-                    .unwrap_or(0) as f64
+                g.node(&br_preds[0]).and_then(|n| n.order).unwrap_or(0) as f64
             } else {
                 0.0
             };

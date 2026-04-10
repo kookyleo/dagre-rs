@@ -27,7 +27,7 @@ use crate::layout::types::{EdgeLabel, NodeLabel};
 use crate::layout::util::{build_layer_matrix, max_rank};
 
 use self::add_subgraph_constraints::add_subgraph_constraints;
-use self::build_layer_graph::{build_layer_graph, get_root, Relationship};
+use self::build_layer_graph::{Relationship, build_layer_graph, get_root};
 use self::cross_count::cross_count;
 use self::init_order::init_order;
 use self::sort_subgraph::sort_subgraph;
@@ -75,7 +75,7 @@ pub(crate) fn order(g: &mut Graph<NodeLabel, EdgeLabel>) {
     let mut i = 0_usize;
     let mut last_best = 0_usize;
     while last_best < 4 {
-        let (ranks, relationship) = if i % 2 != 0 {
+        let (ranks, relationship) = if !i.is_multiple_of(2) {
             (&down_ranks, Relationship::InEdges)
         } else {
             (&up_ranks, Relationship::OutEdges)
@@ -145,10 +145,10 @@ fn sweep_layer_graphs(
 fn assign_order(g: &mut Graph<NodeLabel, EdgeLabel>, layering: &[Vec<String>]) {
     for layer in layering {
         for (i, v) in layer.iter().enumerate() {
-            if !v.is_empty() {
-                if let Some(node) = g.node_mut(v) {
-                    node.order = Some(i);
-                }
+            if !v.is_empty()
+                && let Some(node) = g.node_mut(v)
+            {
+                node.order = Some(i);
             }
         }
     }

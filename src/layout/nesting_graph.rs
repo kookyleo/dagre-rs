@@ -5,12 +5,10 @@
 //!
 //! Ported from dagre.js nesting-graph.ts
 
-use std::collections::HashMap;
-use crate::graph::Graph;
 use super::types::*;
 use super::util::{add_border_node, add_dummy_node};
-
-const GRAPH_NODE: &str = "\x00";
+use crate::graph::Graph;
+use std::collections::HashMap;
 
 /// Run nesting graph transformation.
 /// dagre.js calls this for ALL graphs (not just compound) to ensure the graph
@@ -63,9 +61,11 @@ fn dfs_nesting(
     let children = g.children(Some(v));
     if children.is_empty() {
         if v != root {
-            let mut el = EdgeLabel::default();
-            el.weight = 0;
-            el.minlen = node_sep as i32;
+            let el = EdgeLabel {
+                weight: 0,
+                minlen: node_sep as i32,
+                ..EdgeLabel::default()
+            };
             g.set_edge(root.to_string(), v.to_string(), Some(el), None);
         }
         return;
@@ -118,23 +118,29 @@ fn dfs_nesting(
             (height - depths.get(v).copied().unwrap_or(0) + 1) as i32
         };
 
-        let mut el_top = EdgeLabel::default();
-        el_top.weight = this_weight;
-        el_top.minlen = minlen;
-        el_top.nesting_edge = true;
+        let el_top = EdgeLabel {
+            weight: this_weight,
+            minlen,
+            nesting_edge: true,
+            ..EdgeLabel::default()
+        };
         g.set_edge(top.clone(), child_top, Some(el_top), None);
 
-        let mut el_bottom = EdgeLabel::default();
-        el_bottom.weight = this_weight;
-        el_bottom.minlen = minlen;
-        el_bottom.nesting_edge = true;
+        let el_bottom = EdgeLabel {
+            weight: this_weight,
+            minlen,
+            nesting_edge: true,
+            ..EdgeLabel::default()
+        };
         g.set_edge(child_bottom, bottom.clone(), Some(el_bottom), None);
     }
 
     if g.parent(v).is_none() {
-        let mut el = EdgeLabel::default();
-        el.weight = 0;
-        el.minlen = (height + depths.get(v).copied().unwrap_or(0)) as i32;
+        let el = EdgeLabel {
+            weight: 0,
+            minlen: (height + depths.get(v).copied().unwrap_or(0)) as i32,
+            ..EdgeLabel::default()
+        };
         g.set_edge(root.to_string(), top, Some(el), None);
     }
 }
@@ -172,7 +178,7 @@ pub(crate) fn cleanup(g: &mut Graph<NodeLabel, EdgeLabel>, nesting_root: &str) {
         .into_iter()
         .filter(|e| {
             g.edge(&e.v, &e.w, e.name.as_deref())
-                .map_or(false, |l| l.nesting_edge)
+                .is_some_and(|l| l.nesting_edge)
         })
         .collect();
 

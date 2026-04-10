@@ -3,9 +3,9 @@
 //!
 //! Ported from dagre.js parent-dummy-chains.ts
 
-use std::collections::HashMap;
-use crate::graph::Graph;
 use super::types::*;
+use crate::graph::Graph;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 struct PostorderNum {
@@ -69,12 +69,11 @@ pub(crate) fn parent_dummy_chains(g: &mut Graph<NodeLabel, EdgeLabel>) {
                         ascending = false;
                         break;
                     }
-                    if let Some(pv) = path_v {
-                        if let Some(pn) = g.node(pv) {
-                            if pn.max_rank.unwrap_or(0) >= node.rank.unwrap_or(0) {
-                                break;
-                            }
-                        }
+                    if let Some(pv) = path_v
+                        && let Some(pn) = g.node(pv)
+                        && pn.max_rank.unwrap_or(0) >= node.rank.unwrap_or(0)
+                    {
+                        break;
                     }
                     path_idx += 1;
                 }
@@ -120,9 +119,7 @@ pub(crate) fn parent_dummy_chains(g: &mut Graph<NodeLabel, EdgeLabel>) {
 }
 
 /// Build postorder numbering of the compound hierarchy.
-fn postorder(
-    g: &Graph<NodeLabel, EdgeLabel>,
-) -> HashMap<String, PostorderNum> {
+fn postorder(g: &Graph<NodeLabel, EdgeLabel>) -> HashMap<String, PostorderNum> {
     let mut result: HashMap<String, PostorderNum> = HashMap::new();
     let mut lim: usize = 0;
 
@@ -173,7 +170,9 @@ fn find_path(
     // Traverse up from v to find the LCA
     let mut parent: Option<String> = Some(v.to_string());
     loop {
-        parent = g.parent(parent.as_deref().unwrap_or("")).map(|s| s.to_string());
+        parent = g
+            .parent(parent.as_deref().unwrap_or(""))
+            .map(|s| s.to_string());
         v_path.push(parent.clone());
         if let Some(ref p) = parent {
             if let Some(nums) = postorder_nums.get(p) {

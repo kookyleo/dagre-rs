@@ -2,9 +2,9 @@
 //!
 //! Ported from dagre.js normalize.ts
 
-use crate::graph::Graph;
 use super::types::*;
 use super::util::add_dummy_node;
+use crate::graph::Graph;
 
 /// Break long edges into unit-length segments with dummy nodes.
 ///
@@ -18,7 +18,13 @@ use super::util::add_dummy_node;
 pub(crate) fn run(g: &mut Graph<NodeLabel, EdgeLabel>, dummy_chains: &mut Vec<String>) {
     let edges: Vec<_> = g.edges();
     for e in edges {
-        normalize_edge(g, &e.v.clone(), &e.w.clone(), e.name.as_deref(), dummy_chains);
+        normalize_edge(
+            g,
+            &e.v.clone(),
+            &e.w.clone(),
+            e.name.as_deref(),
+            dummy_chains,
+        );
     }
 }
 
@@ -49,32 +55,40 @@ fn normalize_edge(
     let mut i = 0;
 
     while current_rank < w_rank {
-        let mut attrs = NodeLabel::default();
-        attrs.width = 0.0;
-        attrs.height = 0.0;
-        attrs.edge_label = Some(Box::new(edge_label.clone()));
-        attrs.edge_obj = if let Some(n) = name {
-            Some(crate::graph::Edge::with_name(v, w, n))
-        } else {
-            Some(crate::graph::Edge::new(v, w))
-        };
-        attrs.rank = Some(current_rank);
-
         // If this dummy is at the label rank, give it the label's dimensions
-        let dummy_type = if label_rank.map(|r| r as i32) == Some(current_rank) {
-            attrs.width = edge_label.width;
-            attrs.height = edge_label.height;
-            attrs.labelpos = edge_label.labelpos;
-            "edge-label"
+        let is_label_rank = label_rank.map(|r| r as i32) == Some(current_rank);
+        let (dummy_type, lbl_width, lbl_height, labelpos) = if is_label_rank {
+            (
+                "edge-label",
+                edge_label.width,
+                edge_label.height,
+                edge_label.labelpos,
+            )
         } else {
-            "edge"
+            ("edge", 0.0, 0.0, LabelPos::default())
+        };
+
+        let attrs = NodeLabel {
+            width: lbl_width,
+            height: lbl_height,
+            edge_label: Some(Box::new(edge_label.clone())),
+            edge_obj: if let Some(n) = name {
+                Some(crate::graph::Edge::with_name(v, w, n))
+            } else {
+                Some(crate::graph::Edge::new(v, w))
+            },
+            rank: Some(current_rank),
+            labelpos,
+            ..NodeLabel::default()
         };
 
         let dummy = add_dummy_node(g, dummy_type, attrs, "_d");
 
         // Set edge from prev to dummy
-        let mut el = EdgeLabel::default();
-        el.weight = edge_weight;
+        let el = EdgeLabel {
+            weight: edge_weight,
+            ..EdgeLabel::default()
+        };
         g.set_edge(prev.clone(), dummy.clone(), Some(el), name);
 
         if i == 0 {
@@ -87,8 +101,10 @@ fn normalize_edge(
     }
 
     // Final edge from last dummy to w
-    let mut el = EdgeLabel::default();
-    el.weight = edge_weight;
+    let el = EdgeLabel {
+        weight: edge_weight,
+        ..EdgeLabel::default()
+    };
     g.set_edge(prev, w.to_string(), Some(el), name);
 }
 
@@ -122,12 +138,7 @@ pub(crate) fn undo(g: &mut Graph<NodeLabel, EdgeLabel>, dummy_chains: &[String])
         );
 
         // Walk the dummy chain, collecting points
-        loop {
-            let current = match g.node(&v) {
-                Some(n) => n.clone(),
-                None => break,
-            };
-
+        while let Some(current) = g.node(&v).cloned() {
             if current.dummy.is_none() {
                 break;
             }

@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 
-use crate::graph::Graph;
 use super::barycenter::BarycenterEntry;
+use crate::graph::Graph;
 
 /// A resolved entry: a group of nodes (possibly merged) with an index and
 /// optional barycenter/weight.
@@ -25,7 +25,7 @@ pub(crate) struct ResolvedEntry {
 struct MappedEntry {
     indegree: usize,
     #[allow(clippy::vec_box)]
-    in_entries: Vec<usize>,  // indices into entries vec
+    in_entries: Vec<usize>, // indices into entries vec
     out_entries: Vec<usize>, // indices into entries vec
     vs: Vec<String>,
     i: usize,
@@ -83,7 +83,7 @@ pub(crate) fn resolve_conflicts(
 }
 
 fn do_resolve_conflicts(
-    entries: &mut Vec<MappedEntry>,
+    entries: &mut [MappedEntry],
     source_set: &mut Vec<usize>,
 ) -> Vec<ResolvedEntry> {
     let mut result_order: Vec<usize> = Vec::new();
@@ -133,28 +133,28 @@ fn do_resolve_conflicts(
 }
 
 /// Merge source entry into target entry, combining barycenters and weights.
-fn merge_entries(entries: &mut Vec<MappedEntry>, target: usize, source: usize) {
+fn merge_entries(entries: &mut [MappedEntry], target: usize, source: usize) {
     let mut sum = 0.0_f64;
     let mut weight = 0_i32;
 
-    if let Some(tw) = entries[target].weight {
-        if tw > 0 {
-            sum += entries[target].barycenter.unwrap_or(0.0) * tw as f64;
-            weight += tw;
-        }
+    if let Some(tw) = entries[target].weight
+        && tw > 0
+    {
+        sum += entries[target].barycenter.unwrap_or(0.0) * tw as f64;
+        weight += tw;
     }
 
-    if let Some(sw) = entries[source].weight {
-        if sw > 0 {
-            sum += entries[source].barycenter.unwrap_or(0.0) * sw as f64;
-            weight += sw;
-        }
+    if let Some(sw) = entries[source].weight
+        && sw > 0
+    {
+        sum += entries[source].barycenter.unwrap_or(0.0) * sw as f64;
+        weight += sw;
     }
 
     // Prepend source's vs to target's vs (source.vs.concat(target.vs) in JS)
     let source_vs = entries[source].vs.clone();
     let mut new_vs = source_vs;
-    new_vs.extend(entries[target].vs.drain(..));
+    new_vs.append(&mut entries[target].vs);
     entries[target].vs = new_vs;
 
     if weight > 0 {

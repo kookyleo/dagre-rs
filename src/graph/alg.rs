@@ -3,6 +3,9 @@
 use super::{Edge, Graph};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Type alias for an optional edge-traversal function used in shortest-path algorithms.
+pub type EdgeFn<'a> = Option<&'a dyn Fn(&str) -> Vec<Edge>>;
+
 /// Error returned when a cycle is detected during topological sort.
 #[derive(Debug)]
 pub struct CycleError;
@@ -65,83 +68,78 @@ pub fn is_acyclic<N, E>(g: &Graph<N, E>) -> bool {
 pub fn find_cycles<N, E>(g: &Graph<N, E>) -> Vec<Vec<String>> {
     let sccs = tarjan(g);
     sccs.into_iter()
-        .filter(|scc| scc.len() > 1 || {
-            let v = &scc[0];
-            g.has_edge(v, v, None)
+        .filter(|scc| {
+            scc.len() > 1 || {
+                let v = &scc[0];
+                g.has_edge(v, v, None)
+            }
         })
         .collect()
 }
 
 /// Tarjan's strongly connected components algorithm.
 pub fn tarjan<N, E>(g: &Graph<N, E>) -> Vec<Vec<String>> {
-    let mut index = 0u32;
-    let mut stack = Vec::new();
-    let mut on_stack = HashSet::new();
-    let mut indices: HashMap<String, u32> = HashMap::new();
-    let mut lowlinks: HashMap<String, u32> = HashMap::new();
-    let mut result = Vec::new();
+    struct TarjanState {
+        index: u32,
+        stack: Vec<String>,
+        on_stack: HashSet<String>,
+        indices: HashMap<String, u32>,
+        lowlinks: HashMap<String, u32>,
+        result: Vec<Vec<String>>,
+    }
 
-    fn strongconnect<N, E>(
-        g: &Graph<N, E>,
-        v: &str,
-        index: &mut u32,
-        stack: &mut Vec<String>,
-        on_stack: &mut HashSet<String>,
-        indices: &mut HashMap<String, u32>,
-        lowlinks: &mut HashMap<String, u32>,
-        result: &mut Vec<Vec<String>>,
-    ) {
-        indices.insert(v.to_string(), *index);
-        lowlinks.insert(v.to_string(), *index);
-        *index += 1;
-        stack.push(v.to_string());
-        on_stack.insert(v.to_string());
+    fn strongconnect<N, E>(g: &Graph<N, E>, v: &str, state: &mut TarjanState) {
+        state.indices.insert(v.to_string(), state.index);
+        state.lowlinks.insert(v.to_string(), state.index);
+        state.index += 1;
+        state.stack.push(v.to_string());
+        state.on_stack.insert(v.to_string());
 
         if let Some(succs) = g.successors(v) {
             for w in succs {
-                if !indices.contains_key(&w) {
-                    strongconnect(g, &w, index, stack, on_stack, indices, lowlinks, result);
-                    let lw = lowlinks[&w];
-                    let lv = lowlinks.get_mut(v).unwrap();
+                if !state.indices.contains_key(&w) {
+                    strongconnect(g, &w, state);
+                    let lw = state.lowlinks[&w];
+                    let lv = state.lowlinks.get_mut(v).unwrap();
                     *lv = (*lv).min(lw);
-                } else if on_stack.contains(&w) {
-                    let iw = indices[&w];
-                    let lv = lowlinks.get_mut(v).unwrap();
+                } else if state.on_stack.contains(&w) {
+                    let iw = state.indices[&w];
+                    let lv = state.lowlinks.get_mut(v).unwrap();
                     *lv = (*lv).min(iw);
                 }
             }
         }
 
-        if lowlinks[v] == indices[v] {
+        if state.lowlinks[v] == state.indices[v] {
             let mut scc = Vec::new();
             loop {
-                let w = stack.pop().unwrap();
-                on_stack.remove(&w);
+                let w = state.stack.pop().unwrap();
+                state.on_stack.remove(&w);
                 scc.push(w.clone());
                 if w == v {
                     break;
                 }
             }
-            result.push(scc);
+            state.result.push(scc);
         }
     }
+
+    let mut state = TarjanState {
+        index: 0,
+        stack: Vec::new(),
+        on_stack: HashSet::new(),
+        indices: HashMap::new(),
+        lowlinks: HashMap::new(),
+        result: Vec::new(),
+    };
 
     for v in g.nodes() {
-        if !indices.contains_key(&v) {
-            strongconnect(
-                g,
-                &v,
-                &mut index,
-                &mut stack,
-                &mut on_stack,
-                &mut indices,
-                &mut lowlinks,
-                &mut result,
-            );
+        if !state.indices.contains_key(&v) {
+            strongconnect(g, &v, &mut state);
         }
     }
 
-    result
+    state.result
 }
 
 /// Depth-first search traversal.
@@ -256,7 +254,7 @@ pub fn dijkstra<N, E>(
         source,
         |e: &Edge| {
             g.edge(&e.v, &e.w, e.name.as_deref())
-                .map(|l| weight_fn(l))
+                .map(&weight_fn)
                 .unwrap_or(1.0)
         },
         None,
@@ -271,7 +269,7 @@ pub fn dijkstra_with_edge_fn<N, E>(
     g: &Graph<N, E>,
     source: &str,
     weight_fn: impl Fn(&Edge) -> f64,
-    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+    edge_fn: EdgeFn<'_>,
 ) -> HashMap<String, PathEntry> {
     let mut dist: HashMap<String, PathEntry> = HashMap::new();
     let mut pq = PriorityQueue::new();
@@ -282,9 +280,7 @@ pub fn dijkstra_with_edge_fn<N, E>(
         pq.insert(v, d);
     }
 
-    let default_edge_fn = |v: &str| -> Vec<Edge> {
-        g.out_edges(v, None).unwrap_or_default()
-    };
+    let default_edge_fn = |v: &str| -> Vec<Edge> { g.out_edges(v, None).unwrap_or_default() };
 
     while let Some((u, d)) = pq.extract_min() {
         if d == f64::INFINITY {
@@ -321,7 +317,7 @@ pub fn dijkstra_with_edge_fn<N, E>(
 pub fn dijkstra_all<N, E>(
     g: &Graph<N, E>,
     weight_fn: impl Fn(&Edge) -> f64,
-    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+    edge_fn: EdgeFn<'_>,
 ) -> HashMap<String, HashMap<String, PathEntry>> {
     let mut result = HashMap::new();
     for v in g.nodes() {
@@ -344,14 +340,12 @@ pub fn bellman_ford<N, E>(
     g: &Graph<N, E>,
     source: &str,
     weight_fn: impl Fn(&Edge) -> f64,
-    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+    edge_fn: EdgeFn<'_>,
 ) -> HashMap<String, PathEntry> {
     let nodes = g.nodes();
     let mut results: HashMap<String, PathEntry> = HashMap::new();
 
-    let default_edge_fn = |v: &str| -> Vec<Edge> {
-        g.out_edges(v, None).unwrap_or_default()
-    };
+    let default_edge_fn = |v: &str| -> Vec<Edge> { g.out_edges(v, None).unwrap_or_default() };
 
     // Initialization
     for v in &nodes {
@@ -370,11 +364,19 @@ pub fn bellman_ford<N, E>(
                 // If the vertex on which the edgeFn is called is
                 // the edge.w, then we treat the edge as if it was reversed
                 let in_vertex = if edge.v == *vertex { &edge.v } else { &edge.w };
-                let out_vertex = if *in_vertex == edge.v { &edge.w } else { &edge.v };
+                let out_vertex = if *in_vertex == edge.v {
+                    &edge.w
+                } else {
+                    &edge.v
+                };
                 let relaxed_edge = Edge::new(in_vertex.clone(), out_vertex.clone());
                 let edge_weight = weight_fn(&relaxed_edge);
-                let in_dist = results.get(in_vertex.as_str()).map_or(f64::INFINITY, |e| e.0);
-                let out_dist = results.get(out_vertex.as_str()).map_or(f64::INFINITY, |e| e.0);
+                let in_dist = results
+                    .get(in_vertex.as_str())
+                    .map_or(f64::INFINITY, |e| e.0);
+                let out_dist = results
+                    .get(out_vertex.as_str())
+                    .map_or(f64::INFINITY, |e| e.0);
                 if in_dist + edge_weight < out_dist {
                     results.insert(
                         out_vertex.clone(),
@@ -423,14 +425,12 @@ pub fn bellman_ford<N, E>(
 pub fn floyd_warshall<N, E>(
     g: &Graph<N, E>,
     weight_fn: impl Fn(&Edge) -> f64,
-    edge_fn: Option<&dyn Fn(&str) -> Vec<Edge>>,
+    edge_fn: EdgeFn<'_>,
 ) -> HashMap<String, HashMap<String, PathEntry>> {
     let nodes = g.nodes();
     let mut results: HashMap<String, HashMap<String, PathEntry>> = HashMap::new();
 
-    let default_edge_fn = |v: &str| -> Vec<Edge> {
-        g.out_edges(v, None).unwrap_or_default()
-    };
+    let default_edge_fn = |v: &str| -> Vec<Edge> { g.out_edges(v, None).unwrap_or_default() };
 
     // Initialize
     for v in &nodes {
@@ -664,10 +664,10 @@ impl PriorityQueue {
     }
 
     fn decrease(&mut self, key: &str, priority: f64) {
-        if let Some(p) = self.entries.get_mut(key) {
-            if priority < *p {
-                *p = priority;
-            }
+        if let Some(p) = self.entries.get_mut(key)
+            && priority < *p
+        {
+            *p = priority;
         }
     }
 

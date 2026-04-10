@@ -1,8 +1,9 @@
 //! Layout utility functions ported from dagre.js util.ts
 
-use std::collections::HashMap;
-use crate::graph::{Graph, GraphOptions};
 use super::types::*;
+use crate::graph::{Graph, GraphOptions};
+#[cfg(test)]
+use std::collections::HashMap;
 
 /// Add a dummy node to the graph and return its ID.
 pub(crate) fn add_dummy_node(
@@ -41,16 +42,20 @@ pub(crate) fn simplify(g: &Graph<NodeLabel, EdgeLabel>) -> Graph<NodeLabel, Edge
             minlen = minlen.max(label.minlen);
         }
 
-        let mut label = EdgeLabel::default();
-        label.weight = weight;
-        label.minlen = minlen;
+        let label = EdgeLabel {
+            weight,
+            minlen,
+            ..EdgeLabel::default()
+        };
         simplified.set_edge(e.v.clone(), e.w.clone(), Some(label), None);
     }
     simplified
 }
 
 /// Create a non-compound version, keeping only leaf nodes.
-pub(crate) fn as_non_compound_graph(g: &Graph<NodeLabel, EdgeLabel>) -> Graph<NodeLabel, EdgeLabel> {
+pub(crate) fn as_non_compound_graph(
+    g: &Graph<NodeLabel, EdgeLabel>,
+) -> Graph<NodeLabel, EdgeLabel> {
     let mut simplified = Graph::with_options(GraphOptions {
         multigraph: g.is_multigraph(),
         ..Default::default()
@@ -67,42 +72,15 @@ pub(crate) fn as_non_compound_graph(g: &Graph<NodeLabel, EdgeLabel>) -> Graph<No
     }
     for e in g.edges() {
         if let Some(label) = g.edge(&e.v, &e.w, e.name.as_deref()) {
-            simplified.set_edge(e.v.clone(), e.w.clone(), Some(label.clone()), e.name.as_deref());
+            simplified.set_edge(
+                e.v.clone(),
+                e.w.clone(),
+                Some(label.clone()),
+                e.name.as_deref(),
+            );
         }
     }
     simplified
-}
-
-/// Compute successor weight maps: node -> { neighbor -> total_weight }.
-pub(crate) fn successor_weights(g: &Graph<NodeLabel, EdgeLabel>) -> HashMap<String, HashMap<String, i32>> {
-    let mut result = HashMap::new();
-    for v in g.nodes() {
-        let mut sucs = HashMap::new();
-        if let Some(edges) = g.out_edges(&v, None) {
-            for e in edges {
-                let w = g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight);
-                *sucs.entry(e.w.clone()).or_insert(0) += w;
-            }
-        }
-        result.insert(v, sucs);
-    }
-    result
-}
-
-/// Compute predecessor weight maps: node -> { neighbor -> total_weight }.
-pub(crate) fn predecessor_weights(g: &Graph<NodeLabel, EdgeLabel>) -> HashMap<String, HashMap<String, i32>> {
-    let mut result = HashMap::new();
-    for v in g.nodes() {
-        let mut preds = HashMap::new();
-        if let Some(edges) = g.in_edges(&v, None) {
-            for e in edges {
-                let w = g.edge(&e.v, &e.w, e.name.as_deref()).map_or(1, |l| l.weight);
-                *preds.entry(e.v.clone()).or_insert(0) += w;
-            }
-        }
-        result.insert(v, preds);
-    }
-    result
 }
 
 /// Find rectangle-line intersection point.
@@ -147,16 +125,16 @@ pub(crate) fn build_layer_matrix(g: &Graph<NodeLabel, EdgeLabel>) -> Vec<Vec<Str
     }
     let mut layers: Vec<Vec<String>> = vec![vec![]; (max_r + 1) as usize];
     for v in g.nodes() {
-        if let Some(node) = g.node(&v) {
-            if let Some(rank) = node.rank {
-                let r = rank as usize;
-                if r < layers.len() {
-                    let order = node.order.unwrap_or(0);
-                    if order >= layers[r].len() {
-                        layers[r].resize(order + 1, String::new());
-                    }
-                    layers[r][order] = v;
+        if let Some(node) = g.node(&v)
+            && let Some(rank) = node.rank
+        {
+            let r = rank as usize;
+            if r < layers.len() {
+                let order = node.order.unwrap_or(0);
+                if order >= layers[r].len() {
+                    layers[r].resize(order + 1, String::new());
                 }
+                layers[r][order] = v;
             }
         }
     }
@@ -180,14 +158,14 @@ pub(crate) fn normalize_ranks(g: &mut Graph<NodeLabel, EdgeLabel>) {
         .filter_map(|v| g.node(v).and_then(|n| n.rank))
         .min();
 
-    if let Some(min) = min_rank {
-        if min != 0 {
-            for v in g.nodes() {
-                if let Some(node) = g.node_mut(&v) {
-                    if let Some(ref mut rank) = node.rank {
-                        *rank -= min;
-                    }
-                }
+    if let Some(min) = min_rank
+        && min != 0
+    {
+        for v in g.nodes() {
+            if let Some(node) = g.node_mut(&v)
+                && let Some(ref mut rank) = node.rank
+            {
+                *rank -= min;
             }
         }
     }
@@ -209,10 +187,10 @@ pub(crate) fn remove_empty_ranks(g: &mut Graph<NodeLabel, EdgeLabel>) {
     let len = (max_r - offset + 1) as usize;
     let mut layers: Vec<Vec<String>> = vec![vec![]; len];
     for v in g.nodes() {
-        if let Some(node) = g.node(&v) {
-            if let Some(rank) = node.rank {
-                layers[(rank - offset) as usize].push(v);
-            }
+        if let Some(node) = g.node(&v)
+            && let Some(rank) = node.rank
+        {
+            layers[(rank - offset) as usize].push(v);
         }
     }
 
@@ -237,10 +215,10 @@ pub(crate) fn remove_empty_ranks(g: &mut Graph<NodeLabel, EdgeLabel>) {
             }
         } else if delta != 0 {
             for v in layer {
-                if let Some(node) = g.node_mut(v) {
-                    if let Some(ref mut rank) = node.rank {
-                        *rank += delta;
-                    }
+                if let Some(node) = g.node_mut(v)
+                    && let Some(ref mut rank) = node.rank
+                {
+                    *rank += delta;
                 }
             }
         }
@@ -254,10 +232,52 @@ pub(crate) fn add_border_node(
     rank: Option<i32>,
     order: Option<usize>,
 ) -> String {
-    let mut node = NodeLabel::default();
-    node.width = 0.0;
-    node.height = 0.0;
-    node.rank = rank;
-    node.order = order;
+    let node = NodeLabel {
+        rank,
+        order,
+        ..NodeLabel::default()
+    };
     add_dummy_node(g, "border", node, prefix)
+}
+
+/// Compute successor weight maps: node -> { neighbor -> total_weight }.
+#[cfg(test)]
+pub(crate) fn successor_weights(
+    g: &Graph<NodeLabel, EdgeLabel>,
+) -> HashMap<String, HashMap<String, i32>> {
+    let mut result = HashMap::new();
+    for v in g.nodes() {
+        let mut sucs = HashMap::new();
+        if let Some(edges) = g.out_edges(&v, None) {
+            for e in edges {
+                let w = g
+                    .edge(&e.v, &e.w, e.name.as_deref())
+                    .map_or(1, |l| l.weight);
+                *sucs.entry(e.w.clone()).or_insert(0) += w;
+            }
+        }
+        result.insert(v, sucs);
+    }
+    result
+}
+
+/// Compute predecessor weight maps: node -> { neighbor -> total_weight }.
+#[cfg(test)]
+pub(crate) fn predecessor_weights(
+    g: &Graph<NodeLabel, EdgeLabel>,
+) -> HashMap<String, HashMap<String, i32>> {
+    let mut result = HashMap::new();
+    for v in g.nodes() {
+        let mut preds = HashMap::new();
+        if let Some(edges) = g.in_edges(&v, None) {
+            for e in edges {
+                let w = g
+                    .edge(&e.v, &e.w, e.name.as_deref())
+                    .map_or(1, |l| l.weight);
+                *preds.entry(e.v.clone()).or_insert(0) += w;
+            }
+        }
+        result.insert(v, preds);
+    }
+    result
 }

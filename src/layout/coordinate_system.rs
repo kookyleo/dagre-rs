@@ -2,8 +2,8 @@
 //!
 //! Ported from dagre.js coordinate-system.ts
 
-use crate::graph::Graph;
 use super::types::*;
+use crate::graph::Graph;
 
 /// Before positioning: if rankdir is LR or RL, swap width <-> height
 /// for all nodes and edges so the algorithm can work in TB mode.
@@ -59,10 +59,10 @@ fn swap_width_height_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
 
 fn negate_y_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
     for v in g.nodes() {
-        if let Some(node) = g.node_mut(&v) {
-            if let Some(ref mut y) = node.y {
-                *y = -*y;
-            }
+        if let Some(node) = g.node_mut(&v)
+            && let Some(ref mut y) = node.y
+        {
+            *y = -*y;
         }
     }
 }
@@ -83,9 +83,7 @@ fn negate_y_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
 fn swap_xy_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
     for v in g.nodes() {
         if let Some(node) = g.node_mut(&v) {
-            let old_x = node.x;
-            node.x = node.y;
-            node.y = old_x;
+            std::mem::swap(&mut node.x, &mut node.y);
         }
     }
 }
@@ -93,9 +91,7 @@ fn swap_xy_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
 fn swap_xy_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
     for e in g.edges() {
         if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref()) {
-            let old_x = label.x;
-            label.x = label.y;
-            label.y = old_x;
+            std::mem::swap(&mut label.x, &mut label.y);
             for pt in &mut label.points {
                 std::mem::swap(&mut pt.x, &mut pt.y);
             }

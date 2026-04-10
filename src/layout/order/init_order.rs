@@ -48,12 +48,12 @@ pub(crate) fn init_order(g: &Graph<NodeLabel, EdgeLabel>) -> Vec<Vec<String>> {
         }
         visited.insert(v.to_string());
 
-        if let Some(node) = g.node(v) {
-            if let Some(rank) = node.rank {
-                let r = rank as usize;
-                if r < layers.len() {
-                    layers[r].push(v.to_string());
-                }
+        if let Some(node) = g.node(v)
+            && let Some(rank) = node.rank
+        {
+            let r = rank as usize;
+            if r < layers.len() {
+                layers[r].push(v.to_string());
             }
         }
 

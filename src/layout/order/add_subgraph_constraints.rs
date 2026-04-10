@@ -37,11 +37,11 @@ pub(crate) fn add_subgraph_constraints(
                 root_prev = Some(c.clone());
             }
 
-            if let Some(ref pc) = prev_child {
-                if pc != c {
-                    cg.set_edge(pc.clone(), c.clone(), None, None);
-                    break;
-                }
+            if let Some(ref pc) = prev_child
+                && pc != c
+            {
+                cg.set_edge(pc.clone(), c.clone(), None, None);
+                break;
             }
 
             child = parent;

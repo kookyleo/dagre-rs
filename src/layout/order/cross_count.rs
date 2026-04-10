@@ -73,7 +73,7 @@ fn two_layer_cross_count(
         tree[index] += weight;
         let mut weight_sum: i64 = 0;
         while index > 0 {
-            if index % 2 != 0 {
+            if !index.is_multiple_of(2) {
                 // Left child: add the right sibling's value
                 weight_sum += tree[index + 1];
             }

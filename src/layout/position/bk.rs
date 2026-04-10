@@ -10,9 +10,7 @@ use std::collections::HashMap;
 use log::trace;
 
 use crate::graph::Graph;
-use crate::layout::types::{
-    Align, BorderType, EdgeLabel, GraphLabel, LabelPos, NodeLabel,
-};
+use crate::layout::types::{Align, BorderType, EdgeLabel, GraphLabel, LabelPos, NodeLabel};
 use crate::layout::util::build_layer_matrix;
 
 /// Merged conflict set – keyed by the pair (min(v,w), max(v,w)).
@@ -20,6 +18,15 @@ type Conflicts = HashMap<String, HashMap<String, bool>>;
 
 /// Node-id -> x-coordinate.
 type PositionMap = HashMap<String, f64>;
+
+/// A boxed function that returns neighbors of a node.
+type NeighborFn<'a> = Box<dyn Fn(&str) -> Vec<String> + 'a>;
+
+/// Function type for setting x-coordinates in a block graph.
+type SetXsFn<'a> = dyn Fn(&Graph<(), f64>, &mut PositionMap, &str) + 'a;
+
+/// Function type for getting next nodes in a block graph.
+type NextNodesFn = dyn Fn(&Graph<(), f64>, &str) -> Vec<String>;
 
 /// Alignment result from `vertical_alignment`.
 pub(crate) struct AlignmentResult {
@@ -66,7 +73,7 @@ pub(crate) fn position_x(g: &Graph<NodeLabel, EdgeLabel>) -> PositionMap {
                 adjusted_base.clone()
             };
 
-            let neighbor_fn: Box<dyn Fn(&str) -> Vec<String>> = if *vert == "u" {
+            let neighbor_fn: NeighborFn<'_> = if *vert == "u" {
                 Box::new(|v: &str| g.predecessors(v).unwrap_or_default())
             } else {
                 Box::new(|v: &str| g.successors(v).unwrap_or_default())
@@ -144,8 +151,7 @@ pub(crate) fn find_type1_conflicts(
                                 let u_pos = u_label.order.unwrap_or(0);
                                 if (u_pos < k0 || k1 < u_pos)
                                     && !(u_label.dummy.is_some()
-                                        && g.node(scan_node)
-                                            .map_or(false, |sn| sn.dummy.is_some()))
+                                        && g.node(scan_node).is_some_and(|sn| sn.dummy.is_some()))
                                 {
                                     add_conflict(&mut conflicts, u, scan_node);
                                 }
@@ -188,27 +194,24 @@ pub(crate) fn find_type2_conflicts(
         let mut south_pos: usize = 0;
 
         for (south_lookahead, v) in south.iter().enumerate() {
-            if let Some(nl) = g.node(v) {
-                if nl.dummy.as_deref() == Some("border") {
-                    if let Some(preds) = g.predecessors(v) {
-                        if let Some(first_pred) = preds.first() {
-                            if let Some(pred_label) = g.node(first_pred) {
-                                next_north_pos = pred_label.order.unwrap_or(0) as isize;
-                                scan_type2(
-                                    g,
-                                    &mut conflicts,
-                                    south,
-                                    south_pos,
-                                    south_lookahead,
-                                    prev_north_pos,
-                                    next_north_pos,
-                                );
-                                south_pos = south_lookahead;
-                                prev_north_pos = next_north_pos;
-                            }
-                        }
-                    }
-                }
+            if let Some(nl) = g.node(v)
+                && nl.dummy.as_deref() == Some("border")
+                && let Some(preds) = g.predecessors(v)
+                && let Some(first_pred) = preds.first()
+                && let Some(pred_label) = g.node(first_pred)
+            {
+                next_north_pos = pred_label.order.unwrap_or(0) as isize;
+                scan_type2(
+                    g,
+                    &mut conflicts,
+                    south,
+                    south_pos,
+                    south_lookahead,
+                    prev_north_pos,
+                    next_north_pos,
+                );
+                south_pos = south_lookahead;
+                prev_north_pos = next_north_pos;
             }
             // Final scan after every node (matches the JS forEach structure:
             // the scan call is inside the forEach but outside the if-border block).
@@ -239,22 +242,18 @@ fn scan_type2(
     next_north_border: isize,
 ) {
     for i in south_pos..south_end {
-        if let Some(v) = south.get(i) {
-            if let Some(nl) = g.node(v) {
-                if nl.dummy.is_some() {
-                    if let Some(preds) = g.predecessors(v) {
-                        for u in &preds {
-                            if let Some(u_node) = g.node(u) {
-                                if u_node.dummy.is_some() {
-                                    let u_order = u_node.order.unwrap_or(0) as isize;
-                                    if u_order < prev_north_border
-                                        || u_order > next_north_border
-                                    {
-                                        add_conflict(conflicts, u, v);
-                                    }
-                                }
-                            }
-                        }
+        if let Some(v) = south.get(i)
+            && let Some(nl) = g.node(v)
+            && nl.dummy.is_some()
+            && let Some(preds) = g.predecessors(v)
+        {
+            for u in &preds {
+                if let Some(u_node) = g.node(u)
+                    && u_node.dummy.is_some()
+                {
+                    let u_order = u_node.order.unwrap_or(0) as isize;
+                    if u_order < prev_north_border || u_order > next_north_border {
+                        add_conflict(conflicts, u, v);
                     }
                 }
             }
@@ -267,18 +266,14 @@ fn scan_type2(
 // ---------------------------------------------------------------------------
 
 /// If v is a dummy node with a dummy predecessor, return that predecessor.
-fn find_other_inner_segment_node(
-    g: &Graph<NodeLabel, EdgeLabel>,
-    v: &str,
-) -> Option<String> {
-    if let Some(nl) = g.node(v) {
-        if nl.dummy.is_some() {
-            if let Some(preds) = g.predecessors(v) {
-                return preds
-                    .into_iter()
-                    .find(|u| g.node(u).map_or(false, |ul| ul.dummy.is_some()));
-            }
-        }
+fn find_other_inner_segment_node(g: &Graph<NodeLabel, EdgeLabel>, v: &str) -> Option<String> {
+    if let Some(nl) = g.node(v)
+        && nl.dummy.is_some()
+        && let Some(preds) = g.predecessors(v)
+    {
+        return preds
+            .into_iter()
+            .find(|u| g.node(u).is_some_and(|ul| ul.dummy.is_some()));
     }
     None
 }
@@ -295,7 +290,7 @@ pub(crate) fn add_conflict(conflicts: &mut Conflicts, v: &str, w: &str) {
 /// Check if a conflict exists between nodes v and w.
 pub(crate) fn has_conflict(conflicts: &Conflicts, v: &str, w: &str) -> bool {
     let (v, w) = if v > w { (w, v) } else { (v, w) };
-    conflicts.get(v).map_or(false, |inner| inner.contains_key(w))
+    conflicts.get(v).is_some_and(|inner| inner.contains_key(w))
 }
 
 // ---------------------------------------------------------------------------
@@ -353,14 +348,13 @@ pub(crate) fn vertical_alignment(
                     if align.get(v.as_str()).map(|a| a.as_str()) == Some(v.as_str())
                         && prev_idx < pos_w as isize
                         && !has_conflict(conflicts, v, w)
+                        && let Some(root_w) = root.get(w.as_str()).cloned()
                     {
-                        if let Some(root_w) = root.get(w.as_str()).cloned() {
-                            align.insert(w.clone(), v.clone());
-                            let r = root_w.clone();
-                            root.insert(v.clone(), r.clone());
-                            align.insert(v.clone(), r);
-                            prev_idx = pos_w as isize;
-                        }
+                        align.insert(w.clone(), v.clone());
+                        let r = root_w.clone();
+                        root.insert(v.clone(), r.clone());
+                        align.insert(v.clone(), r);
+                        prev_idx = pos_w as isize;
                     }
                 }
             }
@@ -396,8 +390,8 @@ pub(crate) fn horizontal_compaction(
     fn iterate(
         block_g: &Graph<(), f64>,
         xs: &mut PositionMap,
-        set_xs_func: &dyn Fn(&Graph<(), f64>, &mut PositionMap, &str),
-        next_nodes_func: &dyn Fn(&Graph<(), f64>, &str) -> Vec<String>,
+        set_xs_func: &SetXsFn<'_>,
+        next_nodes_func: &NextNodesFn,
     ) {
         let mut stack: Vec<String> = block_g.nodes();
         let mut visited: HashMap<String, bool> = HashMap::new();
@@ -445,24 +439,25 @@ pub(crate) fn horizontal_compaction(
     // Pass 2: assign greatest coordinates (backward from successors).
     let pass2 = |block_g: &Graph<(), f64>, xs: &mut PositionMap, elem: &str| {
         let mut min = f64::INFINITY;
-        if let Some(out_edges) = block_g.out_edges(elem, None) {
-            if !out_edges.is_empty() {
-                min = out_edges.iter().fold(f64::INFINITY, |acc, e| {
-                    let xs_w = xs.get(&e.w).copied().unwrap_or(0.0);
-                    let edge_weight = block_g
-                        .edge(&e.v, &e.w, e.name.as_deref())
-                        .copied()
-                        .unwrap_or(0.0);
-                    acc.min(xs_w - edge_weight)
-                });
-            }
+        if let Some(out_edges) = block_g.out_edges(elem, None)
+            && !out_edges.is_empty()
+        {
+            min = out_edges.iter().fold(f64::INFINITY, |acc, e| {
+                let xs_w = xs.get(&e.w).copied().unwrap_or(0.0);
+                let edge_weight = block_g
+                    .edge(&e.v, &e.w, e.name.as_deref())
+                    .copied()
+                    .unwrap_or(0.0);
+                acc.min(xs_w - edge_weight)
+            });
         }
 
-        if let Some(node) = g.node(elem) {
-            if min != f64::INFINITY && node.border_type != Some(border_type) {
-                let cur = xs.get(elem).copied().unwrap_or(0.0);
-                xs.insert(elem.to_string(), cur.max(min));
-            }
+        if let Some(node) = g.node(elem)
+            && min != f64::INFINITY
+            && node.border_type != Some(border_type)
+        {
+            let cur = xs.get(elem).copied().unwrap_or(0.0);
+            xs.insert(elem.to_string(), cur.max(min));
         }
     };
 
@@ -505,21 +500,13 @@ fn build_block_graph(
         for v in layer {
             if let Some(v_root) = root.get(v) {
                 block_g.set_node(v_root.clone(), None);
-                if let Some(u_id) = u {
-                    if let Some(u_root) = root.get(u_id) {
-                        let sep_val = sep(g, nodesep, edgesep, reverse_sep, v, u_id);
-                        let prev_max = block_g
-                            .edge(u_root, v_root, None)
-                            .copied()
-                            .unwrap_or(0.0);
-                        let new_weight = sep_val.max(prev_max);
-                        block_g.set_edge(
-                            u_root.clone(),
-                            v_root.clone(),
-                            Some(new_weight),
-                            None,
-                        );
-                    }
+                if let Some(u_id) = u
+                    && let Some(u_root) = root.get(u_id)
+                {
+                    let sep_val = sep(g, nodesep, edgesep, reverse_sep, v, u_id);
+                    let prev_max = block_g.edge(u_root, v_root, None).copied().unwrap_or(0.0);
+                    let new_weight = sep_val.max(prev_max);
+                    block_g.set_edge(u_root.clone(), v_root.clone(), Some(new_weight), None);
                 }
                 u = Some(v);
             }
@@ -646,23 +633,13 @@ pub(crate) fn find_smallest_width_alignment(
 /// Shift all alignments so that left-biased ones share their minimum x with
 /// the smallest-width alignment's minimum, and right-biased ones share their
 /// maximum x with the smallest-width alignment's maximum.
-pub(crate) fn align_coordinates(
-    xss: &mut XssMap,
-    align_to_key: &str,
-    align_to: &PositionMap,
-) {
+pub(crate) fn align_coordinates(xss: &mut XssMap, align_to_key: &str, align_to: &PositionMap) {
     if align_to.is_empty() {
         return;
     }
 
-    let align_to_min = align_to
-        .values()
-        .copied()
-        .fold(f64::INFINITY, f64::min);
-    let align_to_max = align_to
-        .values()
-        .copied()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let align_to_min = align_to.values().copied().fold(f64::INFINITY, f64::min);
+    let align_to_max = align_to.values().copied().fold(f64::NEG_INFINITY, f64::max);
 
     for vert in &["u", "d"] {
         for horiz in &["l", "r"] {
@@ -690,10 +667,8 @@ pub(crate) fn align_coordinates(
             };
 
             if delta.abs() > f64::EPSILON {
-                let shifted: PositionMap = xs
-                    .iter()
-                    .map(|(k, &v)| (k.clone(), v + delta))
-                    .collect();
+                let shifted: PositionMap =
+                    xs.iter().map(|(k, &v)| (k.clone(), v + delta)).collect();
                 xss.insert(key, shifted);
             }
         }
@@ -710,8 +685,8 @@ pub(crate) fn balance(xss: &XssMap, align: Option<Align>) -> PositionMap {
     };
 
     ul_map
-        .iter()
-        .map(|(v, _)| {
+        .keys()
+        .map(|v| {
             if let Some(a) = align {
                 let key = match a {
                     Align::UL => "ul",
@@ -719,10 +694,10 @@ pub(crate) fn balance(xss: &XssMap, align: Option<Align>) -> PositionMap {
                     Align::DL => "dl",
                     Align::DR => "dr",
                 };
-                if let Some(alignment) = xss.get(key) {
-                    if let Some(&val) = alignment.get(v) {
-                        return (v.clone(), val);
-                    }
+                if let Some(alignment) = xss.get(key)
+                    && let Some(&val) = alignment.get(v)
+                {
+                    return (v.clone(), val);
                 }
             }
 
@@ -733,9 +708,8 @@ pub(crate) fn balance(xss: &XssMap, align: Option<Align>) -> PositionMap {
                 .map(|xs| xs.get(v).copied().unwrap_or(0.0))
                 .collect();
             vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let median = (vals.get(1).copied().unwrap_or(0.0)
-                + vals.get(2).copied().unwrap_or(0.0))
-                / 2.0;
+            let median =
+                (vals.get(1).copied().unwrap_or(0.0) + vals.get(2).copied().unwrap_or(0.0)) / 2.0;
             (v.clone(), median)
         })
         .collect()
@@ -1566,8 +1540,20 @@ mod tests {
     #[test]
     fn smallest_width_alignment_finds_correct() {
         let mut g = new_graph();
-        g.set_node("a".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
-        g.set_node("b".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
+        g.set_node(
+            "a".to_string(),
+            Some(NodeLabel {
+                width: 50.0,
+                ..Default::default()
+            }),
+        );
+        g.set_node(
+            "b".to_string(),
+            Some(NodeLabel {
+                width: 50.0,
+                ..Default::default()
+            }),
+        );
 
         let mut xss: XssMap = HashMap::new();
         xss.insert(
@@ -1594,9 +1580,27 @@ mod tests {
     #[test]
     fn smallest_width_takes_node_width_into_account() {
         let mut g = new_graph();
-        g.set_node("a".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
-        g.set_node("b".to_string(), Some(NodeLabel { width: 50.0, ..Default::default() }));
-        g.set_node("c".to_string(), Some(NodeLabel { width: 200.0, ..Default::default() }));
+        g.set_node(
+            "a".to_string(),
+            Some(NodeLabel {
+                width: 50.0,
+                ..Default::default()
+            }),
+        );
+        g.set_node(
+            "b".to_string(),
+            Some(NodeLabel {
+                width: 50.0,
+                ..Default::default()
+            }),
+        );
+        g.set_node(
+            "c".to_string(),
+            Some(NodeLabel {
+                width: 200.0,
+                ..Default::default()
+            }),
+        );
 
         let mut xss: XssMap = HashMap::new();
         xss.insert(

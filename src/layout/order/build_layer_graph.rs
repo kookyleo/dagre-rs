@@ -100,8 +100,10 @@ pub(crate) fn build_layer_graph(
             let existing_weight = result.edge(u, v, None).map_or(0, |l: &EdgeLabel| l.weight);
             let edge_weight = g.edge_by_obj(e).map_or(1, |l| l.weight);
 
-            let mut el = EdgeLabel::default();
-            el.weight = edge_weight + existing_weight;
+            let el = EdgeLabel {
+                weight: edge_weight + existing_weight,
+                ..EdgeLabel::default()
+            };
             result.set_edge(u.clone(), v.clone(), Some(el), None);
         }
 
@@ -127,9 +129,7 @@ pub(crate) fn build_layer_graph(
 
 /// Get the root pseudo-node ID for a layer graph.
 pub(crate) fn get_root(lg: &Graph<NodeLabel, EdgeLabel>) -> String {
-    lg.graph_label::<String>()
-        .cloned()
-        .unwrap_or_default()
+    lg.graph_label::<String>().cloned().unwrap_or_default()
 }
 
 /// Create a unique root node name that doesn't collide with existing nodes.

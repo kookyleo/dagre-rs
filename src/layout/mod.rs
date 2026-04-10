@@ -9,14 +9,14 @@
 pub mod acyclic;
 pub mod add_border_segments;
 pub mod coordinate_system;
+pub mod nesting_graph;
 pub mod normalize;
-pub mod rank;
 pub mod order;
 pub mod parent_dummy_chains;
 pub mod position;
-pub mod nesting_graph;
-pub mod util;
+pub mod rank;
 pub mod types;
+pub mod util;
 
 use crate::graph::{Edge, Graph};
 use types::*;
@@ -32,18 +32,20 @@ pub fn layout(g: &mut Graph<NodeLabel, EdgeLabel>, opts: Option<LayoutOptions>) 
     let opts = opts.unwrap_or_default();
 
     // Store options into a GraphLabel and set it as the graph label
-    let mut gl = GraphLabel::default();
-    gl.rankdir = opts.rankdir;
-    gl.align = opts.align;
-    gl.nodesep = opts.nodesep;
-    gl.edgesep = opts.edgesep;
-    gl.ranksep = opts.ranksep;
-    gl.marginx = opts.marginx;
-    gl.marginy = opts.marginy;
-    gl.acyclicer = opts.acyclicer;
-    gl.ranker = opts.ranker;
-    gl.rank_align = opts.rank_align;
-    gl.compound = g.is_compound();
+    let gl = GraphLabel {
+        rankdir: opts.rankdir,
+        align: opts.align,
+        nodesep: opts.nodesep,
+        edgesep: opts.edgesep,
+        ranksep: opts.ranksep,
+        marginx: opts.marginx,
+        marginy: opts.marginy,
+        acyclicer: opts.acyclicer,
+        ranker: opts.ranker,
+        rank_align: opts.rank_align,
+        compound: g.is_compound(),
+        ..GraphLabel::default()
+    };
     g.set_graph_label(gl);
 
     // 1. Make space for edge labels
@@ -59,27 +61,28 @@ pub fn layout(g: &mut Graph<NodeLabel, EdgeLabel>, opts: Option<LayoutOptions>) 
     // 4-5. Nesting graph + rank assignment
     // dagre.js always runs nestingGraph.run (even for non-compound graphs)
     // to ensure nodeRankFactor is set and the graph is connected.
-    let compound = g.graph_label::<GraphLabel>().map_or(false, |gl| gl.compound);
+    let compound = g.graph_label::<GraphLabel>().is_some_and(|gl| gl.compound);
     let nesting_root = nesting_graph::run(g);
     {
-        let ranker = g.graph_label::<GraphLabel>().map_or(Ranker::NetworkSimplex, |gl| gl.ranker);
+        let ranker = g
+            .graph_label::<GraphLabel>()
+            .map_or(Ranker::NetworkSimplex, |gl| gl.ranker);
         let mut ncg = util::as_non_compound_graph(g);
         rank::rank(&mut ncg, ranker);
         // Transfer ranks back
         for v in ncg.nodes() {
-            if let Some(node) = ncg.node(&v) {
-                if let Some(rank) = node.rank {
-                    if let Some(gn) = g.node_mut(&v) {
-                        gn.rank = Some(rank);
-                    }
-                }
+            if let Some(node) = ncg.node(&v)
+                && let Some(rank) = node.rank
+                && let Some(gn) = g.node_mut(&v)
+            {
+                gn.rank = Some(rank);
             }
         }
     }
-    if let Some(ref root) = nesting_root {
-        if let Some(gl) = g.graph_label_mut::<GraphLabel>() {
-            gl.nesting_root = Some(root.clone());
-        }
+    if let Some(ref root) = nesting_root
+        && let Some(gl) = g.graph_label_mut::<GraphLabel>()
+    {
+        gl.nesting_root = Some(root.clone());
     }
 
     // 6. Inject edge label proxies
@@ -249,24 +252,24 @@ fn insert_self_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
                 node.order = Some(i + order_shift);
             }
 
-            let self_edges: Vec<SelfEdge> = g
-                .node(v)
-                .map(|n| n.self_edges.clone())
-                .unwrap_or_default();
+            let self_edges: Vec<SelfEdge> =
+                g.node(v).map(|n| n.self_edges.clone()).unwrap_or_default();
 
             let node_rank = g.node(v).and_then(|n| n.rank);
 
             for se in &self_edges {
-                let mut attrs = NodeLabel::default();
-                attrs.width = se.label.width;
-                attrs.height = se.label.height;
-                attrs.rank = node_rank;
-                attrs.order = Some(i + (order_shift += 1, order_shift).1);
-                attrs.self_edge_data_e = Some(se.e.clone());
-                attrs.self_edge_data_label = Some(se.label.clone());
+                order_shift += 1;
+                let attrs = NodeLabel {
+                    width: se.label.width,
+                    height: se.label.height,
+                    rank: node_rank,
+                    order: Some(i + order_shift),
+                    self_edge_data_e: Some(se.e.clone()),
+                    self_edge_data_label: Some(se.label.clone()),
+                    ..NodeLabel::default()
+                };
 
-                let dummy = util::add_dummy_node(g, "selfedge", attrs, "_se");
-                let _ = dummy;
+                util::add_dummy_node(g, "selfedge", attrs, "_se");
             }
         }
     }
@@ -300,13 +303,15 @@ fn inject_edge_label_proxies(g: &mut Graph<NodeLabel, EdgeLabel>) {
 
         let mid_rank = (w_rank - v_rank) / 2 + v_rank;
 
-        let mut attrs = NodeLabel::default();
-        attrs.rank = Some(mid_rank);
-        attrs.edge_obj = Some(crate::graph::Edge {
-            v: e.v.clone(),
-            w: e.w.clone(),
-            name: e.name.clone(),
-        });
+        let attrs = NodeLabel {
+            rank: Some(mid_rank),
+            edge_obj: Some(crate::graph::Edge {
+                v: e.v.clone(),
+                w: e.w.clone(),
+                name: e.name.clone(),
+            }),
+            ..NodeLabel::default()
+        };
         // Store a reference to the edge so remove_edge_label_proxies can
         // set label_rank on it later.
         util::add_dummy_node(g, "edge-proxy", attrs, "_ep");
@@ -320,7 +325,7 @@ fn remove_edge_label_proxies(g: &mut Graph<NodeLabel, EdgeLabel>) {
         .into_iter()
         .filter(|v| {
             g.node(v)
-                .map_or(false, |n| n.dummy.as_deref() == Some("edge-proxy"))
+                .is_some_and(|n| n.dummy.as_deref() == Some("edge-proxy"))
         })
         .collect();
 
@@ -328,10 +333,10 @@ fn remove_edge_label_proxies(g: &mut Graph<NodeLabel, EdgeLabel>) {
         let rank = g.node(&v).and_then(|n| n.rank);
         let edge_obj = g.node(&v).and_then(|n| n.edge_obj.clone());
 
-        if let Some(eo) = edge_obj {
-            if let Some(label) = g.edge_mut(&eo.v, &eo.w, eo.name.as_deref()) {
-                label.label_rank = rank.map(|r| r as f64);
-            }
+        if let Some(eo) = edge_obj
+            && let Some(label) = g.edge_mut(&eo.v, &eo.w, eo.name.as_deref())
+        {
+            label.label_rank = rank.map(|r| r as f64);
         }
 
         g.remove_node(&v);
@@ -377,31 +382,31 @@ fn translate_graph(g: &mut Graph<NodeLabel, EdgeLabel>) {
 
     // Compute bounding box from nodes
     for v in g.nodes() {
-        if let Some(node) = g.node(&v) {
-            if let (Some(x), Some(y)) = (node.x, node.y) {
-                let hw = node.width / 2.0;
-                let hh = node.height / 2.0;
-                min_x = min_x.min(x - hw);
-                max_x = max_x.max(x + hw);
-                min_y = min_y.min(y - hh);
-                max_y = max_y.max(y + hh);
-            }
+        if let Some(node) = g.node(&v)
+            && let (Some(x), Some(y)) = (node.x, node.y)
+        {
+            let hw = node.width / 2.0;
+            let hh = node.height / 2.0;
+            min_x = min_x.min(x - hw);
+            max_x = max_x.max(x + hw);
+            min_y = min_y.min(y - hh);
+            max_y = max_y.max(y + hh);
         }
     }
 
     // Also consider edge label positions (only when x is set, matching dagre.js)
     for e in g.edges() {
-        if let Some(label) = g.edge(&e.v, &e.w, e.name.as_deref()) {
-            if let (Some(x), Some(y)) = (label.x, label.y) {
-                let hw = label.width / 2.0;
-                let hh = label.height / 2.0;
-                min_x = min_x.min(x - hw);
-                max_x = max_x.max(x + hw);
-                min_y = min_y.min(y - hh);
-                max_y = max_y.max(y + hh);
-            }
-            // dagre.js does NOT include edge points in bounding box calculation
+        if let Some(label) = g.edge(&e.v, &e.w, e.name.as_deref())
+            && let (Some(x), Some(y)) = (label.x, label.y)
+        {
+            let hw = label.width / 2.0;
+            let hh = label.height / 2.0;
+            min_x = min_x.min(x - hw);
+            max_x = max_x.max(x + hw);
+            min_y = min_y.min(y - hh);
+            max_y = max_y.max(y + hh);
         }
+        // dagre.js does NOT include edge points in bounding box calculation
     }
 
     if min_x == f64::INFINITY {
@@ -464,26 +469,20 @@ fn assign_node_intersects(g: &mut Graph<NodeLabel, EdgeLabel>) {
 
             // For source intersection: use the first point in the path or the target position
             let first = label.points.first().cloned().unwrap_or_else(|| {
-                w_node.as_ref().map_or(
-                    Point::new(0.0, 0.0),
-                    |n| Point::new(n.x.unwrap_or(0.0), n.y.unwrap_or(0.0)),
-                )
+                w_node.as_ref().map_or(Point::new(0.0, 0.0), |n| {
+                    Point::new(n.x.unwrap_or(0.0), n.y.unwrap_or(0.0))
+                })
             });
 
             // For target intersection: use the last point in the path or the source position
             let last = label.points.last().cloned().unwrap_or_else(|| {
-                v_node.as_ref().map_or(
-                    Point::new(0.0, 0.0),
-                    |n| Point::new(n.x.unwrap_or(0.0), n.y.unwrap_or(0.0)),
-                )
+                v_node.as_ref().map_or(Point::new(0.0, 0.0), |n| {
+                    Point::new(n.x.unwrap_or(0.0), n.y.unwrap_or(0.0))
+                })
             });
 
-            let src = v_node
-                .as_ref()
-                .map(|n| util::intersect_rect(n, &first));
-            let tgt = w_node
-                .as_ref()
-                .map(|n| util::intersect_rect(n, &last));
+            let src = v_node.as_ref().map(|n| util::intersect_rect(n, &first));
+            let tgt = w_node.as_ref().map(|n| util::intersect_rect(n, &last));
 
             (src, tgt)
         };
@@ -502,23 +501,23 @@ fn assign_node_intersects(g: &mut Graph<NodeLabel, EdgeLabel>) {
 /// For edges with x set, adjust x based on labelpos (l/r) and labeloffset.
 fn fixup_edge_label_coords(g: &mut Graph<NodeLabel, EdgeLabel>) {
     for e in g.edges() {
-        if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref()) {
-            if label.x.is_some() {
-                // First, undo the width inflation from makeSpaceForEdgeLabels
-                if label.labelpos == LabelPos::Left || label.labelpos == LabelPos::Right {
-                    label.width -= label.label_offset;
+        if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref())
+            && label.x.is_some()
+        {
+            // First, undo the width inflation from makeSpaceForEdgeLabels
+            if label.labelpos == LabelPos::Left || label.labelpos == LabelPos::Right {
+                label.width -= label.label_offset;
+            }
+            // Then adjust x based on labelpos
+            match label.labelpos {
+                LabelPos::Left => {
+                    label.x = label.x.map(|x| x - label.width / 2.0 - label.label_offset);
                 }
-                // Then adjust x based on labelpos
-                match label.labelpos {
-                    LabelPos::Left => {
-                        label.x = label.x.map(|x| x - label.width / 2.0 - label.label_offset);
-                    }
-                    LabelPos::Right => {
-                        label.x = label.x.map(|x| x + label.width / 2.0 + label.label_offset);
-                    }
-                    LabelPos::Center => {
-                        // No adjustment needed
-                    }
+                LabelPos::Right => {
+                    label.x = label.x.map(|x| x + label.width / 2.0 + label.label_offset);
+                }
+                LabelPos::Center => {
+                    // No adjustment needed
                 }
             }
         }
@@ -528,10 +527,10 @@ fn fixup_edge_label_coords(g: &mut Graph<NodeLabel, EdgeLabel>) {
 /// For edges with reversed=true, reverse the points array.
 fn reverse_points_for_reversed_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
     for e in g.edges() {
-        if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref()) {
-            if label.reversed {
-                label.points.reverse();
-            }
+        if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref())
+            && label.reversed
+        {
+            label.points.reverse();
         }
     }
 }
@@ -558,19 +557,19 @@ fn remove_border_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
         let mut max_y = f64::NEG_INFINITY;
 
         for bl in &node.border_left {
-            if let Some(bn) = g.node(bl) {
-                if let (Some(x), Some(y)) = (bn.x, bn.y) {
-                    min_x = min_x.min(x - bn.width / 2.0);
-                    min_y = min_y.min(y - bn.height / 2.0);
-                }
+            if let Some(bn) = g.node(bl)
+                && let (Some(x), Some(y)) = (bn.x, bn.y)
+            {
+                min_x = min_x.min(x - bn.width / 2.0);
+                min_y = min_y.min(y - bn.height / 2.0);
             }
         }
         for br in &node.border_right {
-            if let Some(bn) = g.node(br) {
-                if let (Some(x), Some(y)) = (bn.x, bn.y) {
-                    max_x = max_x.max(x + bn.width / 2.0);
-                    max_y = max_y.max(y + bn.height / 2.0);
-                }
+            if let Some(bn) = g.node(br)
+                && let (Some(x), Some(y)) = (bn.x, bn.y)
+            {
+                max_x = max_x.max(x + bn.width / 2.0);
+                max_y = max_y.max(y + bn.height / 2.0);
             }
         }
 
@@ -591,7 +590,7 @@ fn remove_border_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
         .into_iter()
         .filter(|v| {
             g.node(v)
-                .map_or(false, |n| n.dummy.as_deref() == Some("border"))
+                .is_some_and(|n| n.dummy.as_deref() == Some("border"))
         })
         .collect();
 
@@ -607,7 +606,7 @@ fn position_self_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
         .into_iter()
         .filter(|v| {
             g.node(v)
-                .map_or(false, |n| n.dummy.as_deref() == Some("selfedge"))
+                .is_some_and(|n| n.dummy.as_deref() == Some("selfedge"))
         })
         .collect();
 
