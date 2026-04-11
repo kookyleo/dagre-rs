@@ -52,7 +52,19 @@ fn add_border_node_for(
     // Set parent to v
     g.set_parent(&node_id, Some(v));
 
-    // Get previous border node for this side at rank-1 to chain edges
+    // dagre.js v0.8.5 stores borders in a sparse array indexed by *rank*:
+    //
+    //   var prev = sgNode[prop][rank - 1];
+    //   sgNode[prop][rank] = curr;
+    //
+    // build_layer_graph then looks them up via `borderLeft[rank]`. We
+    // mirror that storage shape with a Vec<String> that we grow to length
+    // `rank + 1`, leaving any unused slots as empty strings — those slots
+    // are skipped by the readers.
+    let rank_idx = rank as usize;
+
+    // Get previous border node for this side at rank-1 to chain edges.
+    // Mirror dagre.js: only the slot at index `rank-1` is checked.
     let prev_border = {
         let node = g.node(v);
         node.and_then(|n| {
@@ -60,16 +72,25 @@ fn add_border_node_for(
                 BorderType::Left => &n.border_left,
                 BorderType::Right => &n.border_right,
             };
-            list.last().cloned()
+            if rank_idx == 0 {
+                None
+            } else {
+                list.get(rank_idx - 1).filter(|s| !s.is_empty()).cloned()
+            }
         })
     };
 
-    // Add to the border list
+    // Insert at index `rank_idx`, growing the Vec with empty placeholders
+    // as needed.
     if let Some(node) = g.node_mut(v) {
-        match border_type {
-            BorderType::Left => node.border_left.push(node_id.clone()),
-            BorderType::Right => node.border_right.push(node_id.clone()),
+        let list = match border_type {
+            BorderType::Left => &mut node.border_left,
+            BorderType::Right => &mut node.border_right,
+        };
+        while list.len() <= rank_idx {
+            list.push(String::new());
         }
+        list[rank_idx] = node_id.clone();
     }
 
     // Chain edge from previous border node to this one

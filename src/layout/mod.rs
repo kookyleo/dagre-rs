@@ -539,7 +539,27 @@ fn reverse_points_for_reversed_edges(g: &mut Graph<NodeLabel, EdgeLabel>) {
 /// For container nodes, compute width/height/x/y from border nodes.
 /// Then remove all "border" dummy nodes.
 fn remove_border_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
-    // First compute container node dimensions from border nodes
+    // First compute container node dimensions from border nodes. Mirror
+    // dagre.js v0.8.5 removeBorderNodes:
+    //
+    //   var t = g.node(node.borderTop);
+    //   var b = g.node(node.borderBottom);
+    //   var l = g.node(_.last(node.borderLeft));
+    //   var r = g.node(_.last(node.borderRight));
+    //   node.width  = Math.abs(r.x - l.x);
+    //   node.height = Math.abs(b.y - t.y);
+    //   node.x      = l.x + node.width / 2;
+    //   node.y      = t.y + node.height / 2;
+    //
+    // Critically: width/height come straight from `r.x - l.x` and
+    // `b.y - t.y` with no padding added, the X bounds use border_left/
+    // border_right (specifically the *last* entry, though all entries on a
+    // given side share the same X), and the Y bounds use border_top/
+    // border_bottom (NOT the Y range of border_left). The earlier
+    // implementation iterated all border_left/border_right entries and
+    // computed both axes from them, which collapsed multi-rank container
+    // heights onto a single border node's Y range and then padded the
+    // result — producing a tiny bogus container box.
     let nodes: Vec<String> = g.nodes();
     for v in &nodes {
         let node = match g.node(v) {
@@ -547,41 +567,39 @@ fn remove_border_nodes(g: &mut Graph<NodeLabel, EdgeLabel>) {
             None => continue,
         };
 
-        if node.border_left.is_empty() {
+        // Skip non-compound nodes (no children → no borders).
+        // border_left/border_right are sparse vectors indexed by rank
+        // (with empty strings as placeholders), so we pick the last
+        // non-empty entry to mirror dagre.js's `_.last(borderLeft)`.
+        let last_bl = node.border_left.iter().rfind(|s| !s.is_empty());
+        let last_br = node.border_right.iter().rfind(|s| !s.is_empty());
+        let bt = node.border_top.as_ref();
+        let bb = node.border_bottom.as_ref();
+        let (Some(l_id), Some(r_id), Some(t_id), Some(b_id)) = (last_bl, last_br, bt, bb) else {
             continue;
-        }
+        };
 
-        // Compute bounding box from border nodes
-        let mut min_x = f64::INFINITY;
-        let mut max_x = f64::NEG_INFINITY;
-        let mut min_y = f64::INFINITY;
-        let mut max_y = f64::NEG_INFINITY;
+        let l = g.node(l_id).cloned();
+        let r = g.node(r_id).cloned();
+        let t = g.node(t_id).cloned();
+        let b = g.node(b_id).cloned();
+        let (Some(l), Some(r), Some(t), Some(b)) = (l, r, t, b) else {
+            continue;
+        };
+        let (Some(lx), Some(rx), Some(ty), Some(by)) = (l.x, r.x, t.y, b.y) else {
+            continue;
+        };
 
-        for bl in &node.border_left {
-            if let Some(bn) = g.node(bl)
-                && let (Some(x), Some(y)) = (bn.x, bn.y)
-            {
-                min_x = min_x.min(x - bn.width / 2.0);
-                min_y = min_y.min(y - bn.height / 2.0);
-            }
-        }
-        for br in &node.border_right {
-            if let Some(bn) = g.node(br)
-                && let (Some(x), Some(y)) = (bn.x, bn.y)
-            {
-                max_x = max_x.max(x + bn.width / 2.0);
-                max_y = max_y.max(y + bn.height / 2.0);
-            }
-        }
+        let width = (rx - lx).abs();
+        let height = (by - ty).abs();
+        let cx = lx + width / 2.0;
+        let cy = ty + height / 2.0;
 
-        if min_x != f64::INFINITY && max_x != f64::NEG_INFINITY {
-            let padding = node.padding;
-            if let Some(node) = g.node_mut(v) {
-                node.width = max_x - min_x + padding;
-                node.height = max_y - min_y + padding;
-                node.x = Some((min_x + max_x) / 2.0);
-                node.y = Some((min_y + max_y) / 2.0);
-            }
+        if let Some(node) = g.node_mut(v) {
+            node.width = width;
+            node.height = height;
+            node.x = Some(cx);
+            node.y = Some(cy);
         }
     }
 

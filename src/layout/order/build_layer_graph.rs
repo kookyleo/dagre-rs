@@ -107,11 +107,14 @@ pub(crate) fn build_layer_graph(
             result.set_edge(u.clone(), v.clone(), Some(el), None);
         }
 
-        // If this is a subgraph node (has minRank), set border info for this rank
+        // If this is a subgraph node (has minRank), set border info for this rank.
+        // The border_left/border_right vectors are sparse and indexed by rank
+        // (matching dagre.js's `borderLeft[rank]` lookup); empty-string slots
+        // are placeholders and must be skipped.
         if node.min_rank.is_some() {
             let r = rank as usize;
-            let bl = node.border_left.get(r).cloned();
-            let br = node.border_right.get(r).cloned();
+            let bl = node.border_left.get(r).filter(|s| !s.is_empty()).cloned();
+            let br = node.border_right.get(r).filter(|s| !s.is_empty()).cloned();
 
             let mut updated = NodeLabel::default();
             if let Some(bl_val) = bl {

@@ -3909,18 +3909,16 @@ fn add_border_segments_adds_border_for_single_rank_subgraph() {
     add_border_segments::add_border_segments(&mut g);
 
     let sg_node = g.node("sg").unwrap();
-    assert!(
-        !sg_node.border_left.is_empty(),
-        "border_left should be populated"
-    );
-    assert!(
-        !sg_node.border_right.is_empty(),
-        "border_right should be populated"
-    );
+    // border_left/border_right are sparse vectors indexed by rank — the
+    // single border for rank=1 lives at index 1 (with index 0 left as an
+    // empty placeholder).
+    assert_eq!(sg_node.border_left.len(), 2);
+    assert_eq!(sg_node.border_right.len(), 2);
+    assert!(sg_node.border_left[0].is_empty());
+    assert!(sg_node.border_right[0].is_empty());
 
-    // The border node at index 0 corresponds to rank 1
-    let bl = &sg_node.border_left[0];
-    let br = &sg_node.border_right[0];
+    let bl = &sg_node.border_left[1];
+    let br = &sg_node.border_right[1];
     let bl_node = g.node(bl).unwrap();
     assert_eq!(bl_node.dummy.as_deref(), Some("border"));
     assert_eq!(bl_node.border_type, Some(BorderType::Left));
@@ -3950,18 +3948,22 @@ fn add_border_segments_adds_border_for_multi_rank_subgraph() {
     add_border_segments::add_border_segments(&mut g);
 
     let sg_node = g.node("sg").unwrap();
-    assert_eq!(sg_node.border_left.len(), 2);
-    assert_eq!(sg_node.border_right.len(), 2);
+    // Sparse storage: borders for ranks 1 and 2 live at indices 1 and 2,
+    // index 0 is an empty placeholder.
+    assert_eq!(sg_node.border_left.len(), 3);
+    assert_eq!(sg_node.border_right.len(), 3);
+    assert!(sg_node.border_left[0].is_empty());
+    assert!(sg_node.border_right[0].is_empty());
 
     // First border (rank 1)
-    let bl1 = &sg_node.border_left[0];
-    let br1 = &sg_node.border_right[0];
+    let bl1 = &sg_node.border_left[1];
+    let br1 = &sg_node.border_right[1];
     assert_eq!(g.node(bl1).unwrap().rank, Some(1));
     assert_eq!(g.node(br1).unwrap().rank, Some(1));
 
     // Second border (rank 2)
-    let bl2 = &sg_node.border_left[1];
-    let br2 = &sg_node.border_right[1];
+    let bl2 = &sg_node.border_left[2];
+    let br2 = &sg_node.border_right[2];
     assert_eq!(g.node(bl2).unwrap().rank, Some(2));
     assert_eq!(g.node(br2).unwrap().rank, Some(2));
 
@@ -3989,9 +3991,10 @@ fn add_border_segments_adds_borders_for_nested_subgraphs() {
     g.set_parent("child2", Some("sg2"));
     add_border_segments::add_border_segments(&mut g);
 
+    // Both subgraphs have min_rank=max_rank=1 → border lives at index 1.
     let sg1_node = g.node("sg1").unwrap();
-    let bl1 = &sg1_node.border_left[0];
-    let br1 = &sg1_node.border_right[0];
+    let bl1 = &sg1_node.border_left[1];
+    let br1 = &sg1_node.border_right[1];
     assert_eq!(g.node(bl1).unwrap().dummy.as_deref(), Some("border"));
     assert_eq!(g.node(bl1).unwrap().border_type, Some(BorderType::Left));
     assert_eq!(g.parent(bl1), Some("sg1"));
@@ -4000,8 +4003,8 @@ fn add_border_segments_adds_borders_for_nested_subgraphs() {
     assert_eq!(g.parent(br1), Some("sg1"));
 
     let sg2_node = g.node("sg2").unwrap();
-    let bl2 = &sg2_node.border_left[0];
-    let br2 = &sg2_node.border_right[0];
+    let bl2 = &sg2_node.border_left[1];
+    let br2 = &sg2_node.border_right[1];
     assert_eq!(g.node(bl2).unwrap().dummy.as_deref(), Some("border"));
     assert_eq!(g.node(bl2).unwrap().border_type, Some(BorderType::Left));
     assert_eq!(g.parent(bl2), Some("sg2"));
