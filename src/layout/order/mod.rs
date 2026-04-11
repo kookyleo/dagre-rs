@@ -23,7 +23,7 @@ pub(crate) mod sort_subgraph;
 use std::collections::HashMap;
 
 use crate::graph::Graph;
-use crate::layout::types::{EdgeLabel, NodeLabel};
+use crate::layout::types::{EdgeLabel, GraphLabel, NodeLabel};
 use crate::layout::util::{build_layer_matrix, max_rank};
 
 use self::add_subgraph_constraints::add_subgraph_constraints;
@@ -40,6 +40,9 @@ pub(crate) fn order(g: &mut Graph<NodeLabel, EdgeLabel>) {
     if mr < 0 {
         return;
     }
+    let tie_keep_first = g
+        .graph_label::<GraphLabel>()
+        .is_some_and(|gl| gl.tie_keep_first);
 
     // Rank lists for down-sweeps (ranks 1..=maxRank) and
     // up-sweeps (ranks maxRank-1..=0).
@@ -91,8 +94,11 @@ pub(crate) fn order(g: &mut Graph<NodeLabel, EdgeLabel>) {
             last_best = 0;
             best = Some(layering.clone());
             best_cc = cc;
-        } else if cc == best_cc {
-            // dagre.js: when tied, update best with current layering
+        } else if cc == best_cc && !tie_keep_first {
+            // dagre.js v3.0.1-pre: when tied, replace best with current layering.
+            // dagre.js v0.8.5 (used by Go d2) instead keeps the earliest tied
+            // layering — opt into that behavior via `tie_keep_first` on
+            // LayoutOptions.
             best = Some(layering);
         }
 

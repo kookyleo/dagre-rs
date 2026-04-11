@@ -13,6 +13,12 @@ pub struct LayoutOptions {
     pub acyclicer: Option<Acyclicer>,
     pub ranker: Ranker,
     pub rank_align: RankAlign,
+    /// When the crossing-reduction phase produces multiple sweeps with the
+    /// same crossing count, dagre.js v3.0.1-pre keeps the *last* tied
+    /// layering, while v0.8.5 (the version bundled by Go d2 v0.7.1) keeps
+    /// the *first*. Set this to `true` to match v0.8.5 behavior — required
+    /// for byte-identical layouts when interoperating with Go d2.
+    pub tie_keep_first: bool,
 }
 
 impl Default for LayoutOptions {
@@ -28,6 +34,7 @@ impl Default for LayoutOptions {
             acyclicer: None,
             ranker: Ranker::NetworkSimplex,
             rank_align: RankAlign::Center,
+            tie_keep_first: false,
         }
     }
 }
@@ -115,6 +122,9 @@ pub struct GraphLabel {
     pub node_rank_factor: Option<f64>,
     pub dummy_chains: Vec<String>,
     pub max_rank: Option<i32>,
+    /// See `LayoutOptions::tie_keep_first` — carried on the graph label so
+    /// the order phase can read it without threading it through every call.
+    pub tie_keep_first: bool,
 }
 
 impl Default for GraphLabel {
@@ -140,6 +150,7 @@ impl Default for GraphLabel {
             node_rank_factor: Some(1.0),
             dummy_chains: Vec::new(),
             max_rank: None,
+            tie_keep_first: false,
         }
     }
 }

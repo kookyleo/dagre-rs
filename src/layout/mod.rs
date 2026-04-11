@@ -43,6 +43,7 @@ pub fn layout(g: &mut Graph<NodeLabel, EdgeLabel>, opts: Option<LayoutOptions>) 
         acyclicer: opts.acyclicer,
         ranker: opts.ranker,
         rank_align: opts.rank_align,
+        tie_keep_first: opts.tie_keep_first,
         compound: g.is_compound(),
         ..GraphLabel::default()
     };
