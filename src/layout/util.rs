@@ -71,6 +71,24 @@ pub(crate) fn as_non_compound_graph(
         }
     }
     for e in g.edges() {
+        // In dagre-d3-es (the upstream JS reference), all edges are included
+        // in the simplified graph via `simplified.setEdge(e, g.edge(e))`.
+        // graphlib's `setEdge` implicitly creates the endpoint nodes with an
+        // empty label `{}` if they do not already exist, so compound parents
+        // (which were skipped above) become implicit nodes. The downstream
+        // `longest_path::dfs` then sets `g.node(v).rank = rank` on these
+        // implicit `{}` objects without error.
+        //
+        // We replicate this by ensuring that if an edge endpoint is a
+        // compound parent (excluded from the explicit node set), we insert it
+        // as an implicit node with a default label before adding the edge.
+        for endpoint in [&e.v, &e.w] {
+            if !simplified.has_node(endpoint) {
+                // Implicit node — compound parent excluded above. Add with
+                // default label so that rank-assignment can reference it.
+                simplified.set_node(endpoint.clone(), Some(NodeLabel::default()));
+            }
+        }
         if let Some(label) = g.edge(&e.v, &e.w, e.name.as_deref()) {
             simplified.set_edge(
                 e.v.clone(),
@@ -87,16 +105,59 @@ pub(crate) fn as_non_compound_graph(
 /// with the node's boundary polygon. The polygon is computed from the
 /// node's shape, size, and center position.
 ///
-/// For diamond nodes the polygon is a rotated-square:
-///   (cx, cy-h/2), (cx+w/2, cy), (cx, cy+h/2), (cx-w/2, cy)
-/// where w==h==`rect.width` (diamond always has equal width/height).
-///
-/// For all other shapes we fall back to `intersect_rect`.
+/// * Diamond nodes use a rotated-square polygon.
+/// * stateStart / stateEnd use ellipse/circle intersection (upstream sets
+///   `node.intersect = intersectCircle(node, width/2, point)`).
+/// * All other shapes fall back to `intersect_rect`.
 pub(crate) fn intersect_node(rect: &NodeLabel, point: &Point) -> Point {
-    if rect.shape.as_deref() == Some("diamond") {
-        return intersect_diamond(rect, point);
+    match rect.shape.as_deref() {
+        Some("diamond") => return intersect_diamond(rect, point),
+        Some("stateStart" | "stateEnd" | "state_start" | "state_end" | "start" | "end") => {
+            return intersect_ellipse(rect, point);
+        }
+        _ => {}
     }
     intersect_rect(rect, point)
+}
+
+/// Ellipse (circle) intersection: finds where the ray from center to `point`
+/// exits the ellipse defined by `rx = width/2, ry = height/2`.
+///
+/// Ports upstream `intersectEllipse(node, rx, ry, point)`:
+/// ```
+/// var px = cx - point.x, py = cy - point.y;
+/// var det = sqrt(rx*rx*py*py + ry*ry*px*px);
+/// var dx = |rx*ry*px/det|; if point.x < cx: dx = -dx;
+/// var dy = |rx*ry*py/det|; if point.y < cy: dy = -dy;
+/// return { x: cx+dx, y: cy+dy }
+/// ```
+fn intersect_ellipse(rect: &NodeLabel, point: &Point) -> Point {
+    let cx = rect.x.unwrap_or(0.0);
+    let cy = rect.y.unwrap_or(0.0);
+    let rx = rect.width / 2.0;
+    let ry = rect.height / 2.0;
+
+    let px = cx - point.x;
+    let py = cy - point.y;
+    if px == 0.0 && py == 0.0 {
+        return Point { x: cx, y: cy };
+    }
+    let det = (rx * rx * py * py + ry * ry * px * px).sqrt();
+    if det == 0.0 {
+        return Point { x: cx, y: cy };
+    }
+    let mut dx = (rx * ry * px / det).abs();
+    if point.x < cx {
+        dx = -dx;
+    }
+    let mut dy = (rx * ry * py / det).abs();
+    if point.y < cy {
+        dy = -dy;
+    }
+    Point {
+        x: cx + dx,
+        y: cy + dy,
+    }
 }
 
 /// Intersect the ray from diamond center toward `point` with the diamond boundary.
