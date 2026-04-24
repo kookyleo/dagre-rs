@@ -83,6 +83,85 @@ pub(crate) fn as_non_compound_graph(
     simplified
 }
 
+/// Find the intersection of the ray from the node center toward `point`
+/// with the node's boundary polygon. The polygon is computed from the
+/// node's shape, size, and center position.
+///
+/// For diamond nodes the polygon is a rotated-square:
+///   (cx, cy-h/2), (cx+w/2, cy), (cx, cy+h/2), (cx-w/2, cy)
+/// where w==h==`rect.width` (diamond always has equal width/height).
+///
+/// For all other shapes we fall back to `intersect_rect`.
+pub(crate) fn intersect_node(rect: &NodeLabel, point: &Point) -> Point {
+    if rect.shape.as_deref() == Some("diamond") {
+        return intersect_diamond(rect, point);
+    }
+    intersect_rect(rect, point)
+}
+
+/// Intersect the ray from diamond center toward `point` with the diamond boundary.
+///
+/// Mirrors dagre-d3-es `intersectPolygon` with the diamond polygon:
+///   vertices = [(cx, cy - h/2), (cx + w/2, cy), (cx, cy + h/2), (cx - w/2, cy)]
+/// where the diamond is parametrized so w == rect.width and h == rect.height.
+fn intersect_diamond(rect: &NodeLabel, point: &Point) -> Point {
+    let cx = rect.x.unwrap_or(0.0);
+    let cy = rect.y.unwrap_or(0.0);
+    let w2 = rect.width / 2.0;
+    let h2 = rect.height / 2.0;
+
+    // Diamond vertices in order.
+    let poly = [
+        (cx, cy - h2),
+        (cx + w2, cy),
+        (cx, cy + h2),
+        (cx - w2, cy),
+    ];
+
+    let dx = point.x - cx;
+    let dy = point.y - cy;
+
+    if dx == 0.0 && dy == 0.0 {
+        return Point { x: cx, y: cy };
+    }
+
+    let mut best_t: Option<f64> = None;
+    let n = poly.len();
+    for i in 0..n {
+        let (x1, y1) = poly[i];
+        let (x2, y2) = poly[(i + 1) % n];
+        let ex = x2 - x1;
+        let ey = y2 - y1;
+        let fx = x1 - cx;
+        let fy = y1 - cy;
+        let denom = dx * ey - dy * ex;
+        if denom.abs() < 1e-10 {
+            continue;
+        }
+        let t = (fx * ey - fy * ex) / denom;
+        let u = (fx * dy - fy * dx) / denom;
+        if t >= 0.0 && u >= 0.0 && u <= 1.0 {
+            match best_t {
+                None => best_t = Some(t),
+                Some(prev) if t < prev => best_t = Some(t),
+                _ => {}
+            }
+        }
+    }
+
+    match best_t {
+        Some(t) => Point {
+            x: cx + dx * t,
+            y: cy + dy * t,
+        },
+        // Fallback: point itself (degenerate, should not happen).
+        None => Point {
+            x: point.x,
+            y: point.y,
+        },
+    }
+}
+
 /// Find rectangle-line intersection point.
 pub(crate) fn intersect_rect(rect: &NodeLabel, point: &Point) -> Point {
     let x = rect.x.unwrap_or(0.0);

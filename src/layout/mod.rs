@@ -482,8 +482,8 @@ fn assign_node_intersects(g: &mut Graph<NodeLabel, EdgeLabel>) {
                 })
             });
 
-            let src = v_node.as_ref().map(|n| util::intersect_rect(n, &first));
-            let tgt = w_node.as_ref().map(|n| util::intersect_rect(n, &last));
+            let src = v_node.as_ref().map(|n| util::intersect_node(n, &first));
+            let tgt = w_node.as_ref().map(|n| util::intersect_node(n, &last));
 
             (src, tgt)
         };
