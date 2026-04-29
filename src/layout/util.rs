@@ -124,7 +124,7 @@ pub(crate) fn intersect_node(rect: &NodeLabel, point: &Point) -> Point {
 /// exits the ellipse defined by `rx = width/2, ry = height/2`.
 ///
 /// Ports upstream `intersectEllipse(node, rx, ry, point)`:
-/// ```
+/// ```text
 /// var px = cx - point.x, py = cy - point.y;
 /// var det = sqrt(rx*rx*py*py + ry*ry*px*px);
 /// var dx = |rx*ry*px/det|; if point.x < cx: dx = -dx;
