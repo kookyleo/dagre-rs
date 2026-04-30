@@ -2,7 +2,7 @@
 
 use crate::graph::{Edge, Graph};
 use crate::layout::types::{EdgeLabel, NodeLabel};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 /// Initializes ranks for the input graph using the longest path algorithm.
 ///
@@ -18,11 +18,14 @@ use std::collections::HashSet;
 /// Post-conditions:
 ///   1. Each node will be assigned an (unnormalized) "rank" property.
 pub(crate) fn longest_path(g: &mut Graph<NodeLabel, EdgeLabel>) {
-    let mut visited = HashSet::new();
+    let mut visited = BTreeSet::new();
 
-    fn dfs(g: &mut Graph<NodeLabel, EdgeLabel>, v: &str, visited: &mut HashSet<String>) -> i32 {
+    fn dfs(g: &mut Graph<NodeLabel, EdgeLabel>, v: &str, visited: &mut BTreeSet<String>) -> i32 {
         if visited.contains(v) {
-            return g.node(v).unwrap().rank.unwrap();
+            // We've already visited and assigned a rank to v on a previous
+            // path; just return it. Defaulting to 0 if either lookup fails
+            // (exotic call topology) keeps the recursion total.
+            return g.node(v).and_then(|n| n.rank).unwrap_or(0);
         }
         visited.insert(v.to_string());
 
@@ -39,7 +42,9 @@ pub(crate) fn longest_path(g: &mut Graph<NodeLabel, EdgeLabel>) {
             .min();
 
         let rank = min_rank.unwrap_or(0);
-        g.node_mut(v).unwrap().rank = Some(rank);
+        if let Some(node) = g.node_mut(v) {
+            node.rank = Some(rank);
+        }
         rank
     }
 
@@ -54,9 +59,18 @@ pub(crate) fn longest_path(g: &mut Graph<NodeLabel, EdgeLabel>) {
 /// Slack is defined as the difference between the length of the edge
 /// and its minimum length:
 ///   slack(g, e) = rank(e.w) - rank(e.v) - minlen
+///
+/// If either endpoint is missing or has no rank assigned (only possible
+/// when an upstream caller invokes this on a partially-ranked graph),
+/// this returns `0` rather than panicking — consistent with treating
+/// the edge as already taut.
 pub(crate) fn slack(g: &Graph<NodeLabel, EdgeLabel>, e: &Edge) -> i32 {
-    let w_rank = g.node(&e.w).unwrap().rank.unwrap();
-    let v_rank = g.node(&e.v).unwrap().rank.unwrap();
+    let Some(w_rank) = g.node(&e.w).and_then(|n| n.rank) else {
+        return 0;
+    };
+    let Some(v_rank) = g.node(&e.v).and_then(|n| n.rank) else {
+        return 0;
+    };
     let minlen = g
         .edge(&e.v, &e.w, e.name.as_deref())
         .map(|l| l.minlen)

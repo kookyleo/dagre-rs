@@ -129,14 +129,22 @@ fn find_min_slack_edge(
 }
 
 /// Shifts ranks of all tree nodes by delta.
+///
+/// Tree nodes are produced by `feasible_tree`, which only adds nodes
+/// whose rank was already set during `longest_path`. We still guard
+/// against a missing rank here so that an exotic upstream that calls
+/// into the tight tree pipeline with a partially-ranked graph degrades
+/// to a no-op for that node rather than panicking.
 fn shift_ranks(
     tree: &Graph<TreeNodeLabel, TreeEdgeLabel>,
     g: &mut Graph<NodeLabel, EdgeLabel>,
     delta: i32,
 ) {
     for v in tree.nodes() {
-        if let Some(label) = g.node_mut(&v) {
-            label.rank = Some(label.rank.unwrap() + delta);
+        if let Some(label) = g.node_mut(&v)
+            && let Some(r) = label.rank
+        {
+            label.rank = Some(r + delta);
         }
     }
 }
