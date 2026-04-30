@@ -9,7 +9,14 @@ use dagre::layout::types::*;
 use serde::Deserialize;
 use std::collections::HashMap;
 
+// Mirror types for the reference JSON. Some fields exist in the JSON for
+// schema completeness (so a baseline regen failure surfaces a parse error
+// rather than a silent shape change) but are not yet asserted against — keep
+// them under `#[allow(dead_code)]` so future tests can read them without
+// reinstating the struct.
+
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct TestCase {
     name: String,
     opts: serde_json::Value,
@@ -19,6 +26,7 @@ struct TestCase {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct RefNode {
     x: f64,
     y: f64,
@@ -29,6 +37,7 @@ struct RefNode {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct RefEdge {
     v: String,
     w: String,
@@ -38,6 +47,7 @@ struct RefEdge {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct RefPoint {
     x: f64,
     y: f64,
@@ -75,9 +85,38 @@ fn get_node_order(name: &str) -> Vec<String> {
     strs.into_iter().map(|s| s.to_string()).collect()
 }
 
+#[derive(Deserialize, Debug)]
+struct ReferenceFile {
+    #[serde(default)]
+    _meta: Option<ReferenceMeta>,
+    cases: Vec<TestCase>,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct ReferenceMeta {
+    upstream: String,
+    version: String,
+    commit: String,
+    generated_at: Option<String>,
+    generator: Option<String>,
+    note: Option<String>,
+}
+
 fn load_reference() -> Vec<TestCase> {
     let data = include_str!("../cross-validate/reference_data.json");
-    serde_json::from_str(data).expect("Failed to parse reference data")
+    let file: ReferenceFile = serde_json::from_str(data).expect("Failed to parse reference data");
+    if let Some(meta) = &file._meta {
+        // Surface the upstream baseline in test output so a CI log makes
+        // baseline drift obvious without having to open the JSON.
+        println!(
+            "Cross-validation baseline: {}@{} ({})",
+            meta.upstream,
+            meta.version,
+            meta.commit.get(..7).unwrap_or(&meta.commit),
+        );
+    }
+    file.cases
 }
 
 fn build_graph(tc: &TestCase) -> (Graph<NodeLabel, EdgeLabel>, LayoutOptions) {
@@ -101,9 +140,11 @@ fn build_graph(tc: &TestCase) -> (Graph<NodeLabel, EdgeLabel>, LayoutOptions) {
             continue;
         }
         if let Some(ref_node) = tc.nodes.get(v.as_str()) {
-            let mut label = NodeLabel::default();
-            label.width = ref_node.width;
-            label.height = ref_node.height;
+            let label = NodeLabel {
+                width: ref_node.width,
+                height: ref_node.height,
+                ..Default::default()
+            };
             g.set_node(v.clone(), Some(label));
         }
     }
@@ -165,10 +206,12 @@ fn setup_edges(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
             g.set_edge("d", "e", Some(EdgeLabel::default()), None);
         }
         "edge_label" => {
-            let mut el = EdgeLabel::default();
-            el.width = 80.0;
-            el.height = 20.0;
-            el.labelpos = LabelPos::Center;
+            let el = EdgeLabel {
+                width: 80.0,
+                height: 20.0,
+                labelpos: LabelPos::Center,
+                ..Default::default()
+            };
             g.set_edge("a", "b", Some(el), None);
         }
         "cycle" => {
@@ -189,9 +232,11 @@ fn setup_edges(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
         }
         "self_loop" => {
             g.set_edge("a", "b", Some(EdgeLabel::default()), None);
-            let mut el = EdgeLabel::default();
-            el.width = 40.0;
-            el.height = 20.0;
+            let el = EdgeLabel {
+                width: 40.0,
+                height: 20.0,
+                ..Default::default()
+            };
             g.set_edge("a", "a", Some(el), None);
         }
         "long_edge" => {
@@ -201,7 +246,7 @@ fn setup_edges(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
         }
         "fan_out" => {
             for i in 0..5 {
-                g.set_edge("root", &format!("n{}", i), Some(EdgeLabel::default()), None);
+                g.set_edge("root", format!("n{}", i), Some(EdgeLabel::default()), None);
             }
         }
         "varied_sizes" => {
@@ -230,8 +275,10 @@ fn setup_edges(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
             g.set_edge("b", "c", Some(EdgeLabel::default()), None);
         }
         "minlen" => {
-            let mut el = EdgeLabel::default();
-            el.minlen = 3;
+            let el = EdgeLabel {
+                minlen: 3,
+                ..Default::default()
+            };
             g.set_edge("a", "b", Some(el), None);
         }
         _ => panic!("Unknown test case: {}", tc.name),
@@ -294,14 +341,14 @@ fn cross_validate_all_cases() {
             }
 
             // Compare rank
-            if let Some(ref_rank) = ref_node.rank {
-                if node.rank != Some(ref_rank) {
-                    failures.push(format!(
-                        "[{}] node '{}' rank: dagre-rs={:?}, dagre.js={}",
-                        tc.name, v, node.rank, ref_rank
-                    ));
-                    case_ok = false;
-                }
+            if let Some(ref_rank) = ref_node.rank
+                && node.rank != Some(ref_rank)
+            {
+                failures.push(format!(
+                    "[{}] node '{}' rank: dagre-rs={:?}, dagre.js={}",
+                    tc.name, v, node.rank, ref_rank
+                ));
+                case_ok = false;
             }
         }
 

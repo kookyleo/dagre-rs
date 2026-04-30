@@ -1,10 +1,16 @@
 /**
  * Generate reference layout data from dagre.js for cross-validation.
  * Runs a set of test graphs through dagre.js and saves the results as JSON.
+ *
+ * The output JSON has the shape `{ "_meta": {...}, "cases": [...] }`. The
+ * `_meta` block records which dagre.js version/commit produced the baseline,
+ * so reviewers can audit basleine drift via `git diff`. See ../ref/README.md
+ * (or cross-validate/SETUP.md) for how to set up `ref/dagre-js`.
  */
 import { Graph } from '../ref/dagre-js/dist/dagre.esm.js';
 import { layout } from '../ref/dagre-js/dist/dagre.esm.js';
-import { writeFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
+import { execSync } from 'child_process';
 
 const testCases = [];
 
@@ -233,8 +239,34 @@ runCase("minlen", g => {
     g.setEdge("a", "b", { minlen: 3 });
 });
 
+// Capture the upstream version + commit so reviewers can tell at a glance
+// which dagre.js produced this baseline. `commit` falls back to "unknown" if
+// ref/dagre-js is not a git checkout (e.g. unpacked tarball).
+const refRoot = new URL('../ref/dagre-js/', import.meta.url);
+const refPkg = JSON.parse(readFileSync(new URL('package.json', refRoot), 'utf8'));
+let refCommit = 'unknown';
+try {
+    refCommit = execSync('git rev-parse HEAD', { cwd: refRoot, encoding: 'utf8' }).trim();
+} catch {
+    // ref/dagre-js is not a git checkout; leave commit as "unknown".
+}
+
+const output = {
+    _meta: {
+        upstream: refPkg.name ?? '@dagrejs/dagre',
+        version: refPkg.version,
+        commit: refCommit,
+        generated_at: new Date().toISOString(),
+        generator: 'cross-validate/generate_reference.mjs',
+    },
+    cases: testCases,
+};
+
 writeFileSync(
     new URL('./reference_data.json', import.meta.url),
-    JSON.stringify(testCases, null, 2)
+    JSON.stringify(output, null, 2)
 );
-console.log(`Generated ${testCases.length} reference test cases.`);
+
+console.log(
+    `Wrote ${testCases.length} cases generated from ${output._meta.upstream}@${output._meta.version} (${output._meta.commit.slice(0, 7)})`
+);
