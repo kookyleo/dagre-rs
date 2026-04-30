@@ -239,6 +239,133 @@ runCase("minlen", g => {
     g.setEdge("a", "b", { minlen: 3 });
 });
 
+// ----------------------------------------------------------------------
+// Compound bbox matrix (cases 21-30).
+//
+// mermaid-little observed systematic 2-5 px deltas in compound (cluster)
+// node sizing — see docs/dagre_rs_inconsistency_report.zh.md items
+// ④⑤⑧⑨. These cases isolate the variables (rankdir, child count,
+// nesting depth, cross-cluster edges) so cross-validation surfaces
+// whether the bias originates in dagre-rs's port or in @dagrejs/dagre.
+// ----------------------------------------------------------------------
+
+// 21. Compound, single leaf child, TB direction.
+runCase("compound_single_leaf_tb", g => {
+    g.setNode("a", { width: 50, height: 50 });
+    g.setNode("g", {});
+    g.setParent("a", "g");
+});
+
+// 22. Compound, single leaf child, LR direction.
+runCase("compound_single_leaf_lr", g => {
+    g.setNode("a", { width: 50, height: 50 });
+    g.setNode("g", {});
+    g.setParent("a", "g");
+}, { rankdir: "LR" });
+
+// 23. Compound, three-leaf chain inside a cluster, TB.
+runCase("compound_chain_tb", g => {
+    g.setNode("a", { width: 50, height: 50 });
+    g.setNode("b", { width: 50, height: 50 });
+    g.setNode("c", { width: 50, height: 50 });
+    g.setNode("g", {});
+    g.setParent("a", "g");
+    g.setParent("b", "g");
+    g.setParent("c", "g");
+    g.setEdge("a", "b");
+    g.setEdge("b", "c");
+});
+
+// 24. Three-leaf chain, LR — mirrors mermaid state ④ "isolated cluster,
+//     leaf-only, LR" — the case where the report saw the 5x5 swap.
+runCase("compound_chain_lr", g => {
+    g.setNode("a", { width: 50, height: 50 });
+    g.setNode("b", { width: 50, height: 50 });
+    g.setNode("c", { width: 50, height: 50 });
+    g.setNode("g", {});
+    g.setParent("a", "g");
+    g.setParent("b", "g");
+    g.setParent("c", "g");
+    g.setEdge("a", "b");
+    g.setEdge("b", "c");
+}, { rankdir: "LR" });
+
+// 25. Nested compound: outer { inner { a, b }, c }. TB.
+runCase("compound_nested_tb", g => {
+    g.setNode("a", { width: 40, height: 30 });
+    g.setNode("b", { width: 40, height: 30 });
+    g.setNode("c", { width: 40, height: 30 });
+    g.setNode("inner", {});
+    g.setNode("outer", {});
+    g.setParent("a", "inner");
+    g.setParent("b", "inner");
+    g.setParent("inner", "outer");
+    g.setParent("c", "outer");
+    g.setEdge("a", "b");
+    g.setEdge("b", "c");
+});
+
+// 26. Nested compound, LR rankdir.
+runCase("compound_nested_lr", g => {
+    g.setNode("a", { width: 40, height: 30 });
+    g.setNode("b", { width: 40, height: 30 });
+    g.setNode("c", { width: 40, height: 30 });
+    g.setNode("inner", {});
+    g.setNode("outer", {});
+    g.setParent("a", "inner");
+    g.setParent("b", "inner");
+    g.setParent("inner", "outer");
+    g.setParent("c", "outer");
+    g.setEdge("a", "b");
+    g.setEdge("b", "c");
+}, { rankdir: "LR" });
+
+// 27. Cross-cluster edge: a-child(g1) → b-child(g2). TB.
+runCase("compound_cross_cluster_tb", g => {
+    g.setNode("a", { width: 50, height: 30 });
+    g.setNode("b", { width: 50, height: 30 });
+    g.setNode("g1", {});
+    g.setNode("g2", {});
+    g.setParent("a", "g1");
+    g.setParent("b", "g2");
+    g.setEdge("a", "b");
+});
+
+// 28. Cross-cluster edge, LR.
+runCase("compound_cross_cluster_lr", g => {
+    g.setNode("a", { width: 50, height: 30 });
+    g.setNode("b", { width: 50, height: 30 });
+    g.setNode("g1", {});
+    g.setNode("g2", {});
+    g.setParent("a", "g1");
+    g.setParent("b", "g2");
+    g.setEdge("a", "b");
+}, { rankdir: "LR" });
+
+// 29. Empty inner cluster (no children of its own).
+runCase("compound_empty_inner", g => {
+    g.setNode("a", { width: 40, height: 30 });
+    g.setNode("inner_empty", {});
+    g.setNode("outer", {});
+    g.setParent("a", "outer");
+    g.setParent("inner_empty", "outer");
+});
+
+// 30. Fork/join inside a cluster — exercises ⑨ "+2 px" report case.
+runCase("compound_fork_join", g => {
+    g.setNode("a", { width: 40, height: 30 });
+    g.setNode("l", { width: 40, height: 30 });
+    g.setNode("r", { width: 40, height: 30 });
+    g.setNode("z", { width: 40, height: 30 });
+    g.setNode("g", {});
+    g.setParent("l", "g");
+    g.setParent("r", "g");
+    g.setEdge("a", "l");
+    g.setEdge("a", "r");
+    g.setEdge("l", "z");
+    g.setEdge("r", "z");
+});
+
 // Capture the upstream version + commit so reviewers can tell at a glance
 // which dagre.js produced this baseline. `commit` falls back to "unknown" if
 // ref/dagre-js is not a git checkout (e.g. unpacked tarball).

@@ -30,8 +30,12 @@ struct TestCase {
 struct RefNode {
     x: f64,
     y: f64,
-    width: f64,
-    height: f64,
+    // Cluster nodes with no children are never sized by dagre, so the
+    // baseline JSON omits these fields entirely. Optional matches that.
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
     rank: Option<i32>,
     order: Option<usize>,
 }
@@ -80,6 +84,17 @@ fn get_node_order(name: &str) -> Vec<String> {
         "complex" => vec!["a", "b", "c", "d", "e", "f", "g", "h"],
         "compound" => vec!["a", "b", "c", "group"],
         "minlen" => vec!["a", "b"],
+        // Compound bbox matrix (cases 21-30).
+        "compound_single_leaf_tb" | "compound_single_leaf_lr" => vec!["a", "g"],
+        "compound_chain_tb" | "compound_chain_lr" => vec!["a", "b", "c", "g"],
+        "compound_nested_tb" | "compound_nested_lr" => {
+            vec!["a", "b", "c", "inner", "outer"]
+        }
+        "compound_cross_cluster_tb" | "compound_cross_cluster_lr" => {
+            vec!["a", "b", "g1", "g2"]
+        }
+        "compound_empty_inner" => vec!["a", "inner_empty", "outer"],
+        "compound_fork_join" => vec!["a", "l", "r", "z", "g"],
         other => panic!("Unknown test case: {}", other),
     };
     strs.into_iter().map(|s| s.to_string()).collect()
@@ -131,29 +146,28 @@ fn build_graph(tc: &TestCase) -> (Graph<NodeLabel, EdgeLabel>, LayoutOptions) {
     // This is critical because dagre.js preserves insertion order and
     // the ordering algorithm depends on g.nodes() order.
     let node_order = get_node_order(&tc.name);
+    let cluster_ids = cluster_node_ids_for(&tc.name);
     for v in &node_order {
-        // For compound "group" node: JS uses g.setNode("group", {}),
-        // giving it default 0×0 dimensions. The reference data stores
-        // the FINAL (computed) dimensions, so we must not use those.
-        if tc.name == "compound" && v == "group" {
+        // Cluster (compound) nodes are created in JS via `setNode("g", {})`
+        // — default 0×0 dimensions. Reference data stores the FINAL
+        // (computed) dimensions, so we must use Default here, not the
+        // ref_node.
+        if cluster_ids.contains(&v.as_str()) {
             g.set_node(v.clone(), Some(NodeLabel::default()));
             continue;
         }
         if let Some(ref_node) = tc.nodes.get(v.as_str()) {
             let label = NodeLabel {
-                width: ref_node.width,
-                height: ref_node.height,
+                width: ref_node.width.unwrap_or(0.0),
+                height: ref_node.height.unwrap_or(0.0),
                 ..Default::default()
             };
             g.set_node(v.clone(), Some(label));
         }
     }
 
-    // Special handling for compound: set parent relationships
-    if tc.name == "compound" {
-        g.set_parent("a", Some("group"));
-        g.set_parent("b", Some("group"));
-    }
+    // Set parent relationships for the compound matrix.
+    setup_parents(&mut g, tc);
 
     // Set up edges based on the test case name
     setup_edges(&mut g, tc);
@@ -185,6 +199,58 @@ fn build_graph(tc: &TestCase) -> (Graph<NodeLabel, EdgeLabel>, LayoutOptions) {
     }
 
     (g, opts)
+}
+
+/// IDs that should be created with `NodeLabel::default()` (zero-sized;
+/// dagre fills the size during layout). Mirrors `g.setNode("g", {})`
+/// in the JS generator.
+fn cluster_node_ids_for(name: &str) -> &'static [&'static str] {
+    match name {
+        "compound" => &["group"],
+        "compound_single_leaf_tb" | "compound_single_leaf_lr" => &["g"],
+        "compound_chain_tb" | "compound_chain_lr" => &["g"],
+        "compound_nested_tb" | "compound_nested_lr" => &["inner", "outer"],
+        "compound_cross_cluster_tb" | "compound_cross_cluster_lr" => &["g1", "g2"],
+        "compound_empty_inner" => &["inner_empty", "outer"],
+        "compound_fork_join" => &["g"],
+        _ => &[],
+    }
+}
+
+fn setup_parents(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
+    match tc.name.as_str() {
+        "compound" => {
+            g.set_parent("a", Some("group"));
+            g.set_parent("b", Some("group"));
+        }
+        "compound_single_leaf_tb" | "compound_single_leaf_lr" => {
+            g.set_parent("a", Some("g"));
+        }
+        "compound_chain_tb" | "compound_chain_lr" => {
+            g.set_parent("a", Some("g"));
+            g.set_parent("b", Some("g"));
+            g.set_parent("c", Some("g"));
+        }
+        "compound_nested_tb" | "compound_nested_lr" => {
+            g.set_parent("a", Some("inner"));
+            g.set_parent("b", Some("inner"));
+            g.set_parent("inner", Some("outer"));
+            g.set_parent("c", Some("outer"));
+        }
+        "compound_cross_cluster_tb" | "compound_cross_cluster_lr" => {
+            g.set_parent("a", Some("g1"));
+            g.set_parent("b", Some("g2"));
+        }
+        "compound_empty_inner" => {
+            g.set_parent("a", Some("outer"));
+            g.set_parent("inner_empty", Some("outer"));
+        }
+        "compound_fork_join" => {
+            g.set_parent("l", Some("g"));
+            g.set_parent("r", Some("g"));
+        }
+        _ => {}
+    }
 }
 
 fn setup_edges(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
@@ -280,6 +346,22 @@ fn setup_edges(g: &mut Graph<NodeLabel, EdgeLabel>, tc: &TestCase) {
                 ..Default::default()
             };
             g.set_edge("a", "b", Some(el), None);
+        }
+        // Compound bbox matrix.
+        "compound_single_leaf_tb" | "compound_single_leaf_lr" => {}
+        "compound_chain_tb" | "compound_chain_lr" | "compound_nested_tb" | "compound_nested_lr" => {
+            g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+            g.set_edge("b", "c", Some(EdgeLabel::default()), None);
+        }
+        "compound_cross_cluster_tb" | "compound_cross_cluster_lr" => {
+            g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+        }
+        "compound_empty_inner" => {}
+        "compound_fork_join" => {
+            g.set_edge("a", "l", Some(EdgeLabel::default()), None);
+            g.set_edge("a", "r", Some(EdgeLabel::default()), None);
+            g.set_edge("l", "z", Some(EdgeLabel::default()), None);
+            g.set_edge("r", "z", Some(EdgeLabel::default()), None);
         }
         _ => panic!("Unknown test case: {}", tc.name),
     }
