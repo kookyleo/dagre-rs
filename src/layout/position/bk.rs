@@ -5,7 +5,7 @@
 //! time, then balances the results by taking the average of the two median
 //! values for every node.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use log::trace;
 
@@ -14,10 +14,10 @@ use crate::layout::types::{Align, BorderType, EdgeLabel, GraphLabel, LabelPos, N
 use crate::layout::util::build_layer_matrix;
 
 /// Merged conflict set – keyed by the pair (min(v,w), max(v,w)).
-type Conflicts = HashMap<String, HashMap<String, bool>>;
+type Conflicts = BTreeMap<String, BTreeMap<String, bool>>;
 
 /// Node-id -> x-coordinate.
-type PositionMap = HashMap<String, f64>;
+type PositionMap = BTreeMap<String, f64>;
 
 /// A boxed function that returns neighbors of a node.
 type NeighborFn<'a> = Box<dyn Fn(&str) -> Vec<String> + 'a>;
@@ -30,12 +30,12 @@ type NextNodesFn = dyn Fn(&Graph<(), f64>, &str) -> Vec<String>;
 
 /// Alignment result from `vertical_alignment`.
 pub(crate) struct AlignmentResult {
-    pub(crate) root: HashMap<String, String>,
-    pub(crate) align: HashMap<String, String>,
+    pub(crate) root: BTreeMap<String, String>,
+    pub(crate) align: BTreeMap<String, String>,
 }
 
 /// 4-direction keyed x-coordinate maps: "ul", "ur", "dl", "dr".
-type XssMap = HashMap<String, PositionMap>;
+type XssMap = BTreeMap<String, PositionMap>;
 
 // ---------------------------------------------------------------------------
 // Public entry
@@ -54,7 +54,7 @@ pub(crate) fn position_x(g: &Graph<NodeLabel, EdgeLabel>) -> PositionMap {
         }
     }
 
-    let mut xss: XssMap = HashMap::new();
+    let mut xss: XssMap = BTreeMap::new();
 
     for vert in &["u", "d"] {
         let adjusted_base: Vec<Vec<String>> = if *vert == "u" {
@@ -118,7 +118,7 @@ pub(crate) fn find_type1_conflicts(
     g: &Graph<NodeLabel, EdgeLabel>,
     layering: &[Vec<String>],
 ) -> Conflicts {
-    let mut conflicts: Conflicts = HashMap::new();
+    let mut conflicts: Conflicts = BTreeMap::new();
 
     if layering.is_empty() {
         return conflicts;
@@ -179,7 +179,7 @@ pub(crate) fn find_type2_conflicts(
     g: &Graph<NodeLabel, EdgeLabel>,
     layering: &[Vec<String>],
 ) -> Conflicts {
-    let mut conflicts: Conflicts = HashMap::new();
+    let mut conflicts: Conflicts = BTreeMap::new();
 
     if layering.is_empty() {
         return conflicts;
@@ -306,9 +306,9 @@ pub(crate) fn vertical_alignment(
     conflicts: &Conflicts,
     neighbor_fn: &dyn Fn(&str) -> Vec<String>,
 ) -> AlignmentResult {
-    let mut root: HashMap<String, String> = HashMap::new();
-    let mut align: HashMap<String, String> = HashMap::new();
-    let mut pos: HashMap<String, usize> = HashMap::new();
+    let mut root: BTreeMap<String, String> = BTreeMap::new();
+    let mut align: BTreeMap<String, String> = BTreeMap::new();
+    let mut pos: BTreeMap<String, usize> = BTreeMap::new();
 
     // Cache positions from layering order (may differ from node.order when
     // the layering has been reversed for a particular sweep direction).
@@ -374,11 +374,11 @@ pub(crate) fn vertical_alignment(
 pub(crate) fn horizontal_compaction(
     g: &Graph<NodeLabel, EdgeLabel>,
     layering: &[Vec<String>],
-    root: &HashMap<String, String>,
-    align: &HashMap<String, String>,
+    root: &BTreeMap<String, String>,
+    align: &BTreeMap<String, String>,
     reverse_sep: bool,
 ) -> PositionMap {
-    let mut xs: PositionMap = HashMap::new();
+    let mut xs: PositionMap = BTreeMap::new();
     let block_g = build_block_graph(g, layering, root, reverse_sep);
     let border_type = if reverse_sep {
         BorderType::Left
@@ -394,7 +394,7 @@ pub(crate) fn horizontal_compaction(
         next_nodes_func: &NextNodesFn,
     ) {
         let mut stack: Vec<String> = block_g.nodes();
-        let mut visited: HashMap<String, bool> = HashMap::new();
+        let mut visited: BTreeMap<String, bool> = BTreeMap::new();
 
         while let Some(elem) = stack.pop() {
             if visited.contains_key(&elem) {
@@ -487,7 +487,7 @@ pub(crate) fn horizontal_compaction(
 fn build_block_graph(
     g: &Graph<NodeLabel, EdgeLabel>,
     layering: &[Vec<String>],
-    root: &HashMap<String, String>,
+    root: &BTreeMap<String, String>,
     reverse_sep: bool,
 ) -> Graph<(), f64> {
     let mut block_g: Graph<(), f64> = Graph::new();
@@ -681,7 +681,7 @@ pub(crate) fn align_coordinates(xss: &mut XssMap, align_to_key: &str, align_to: 
 pub(crate) fn balance(xss: &XssMap, align: Option<Align>) -> PositionMap {
     let ul_map = match xss.get("ul") {
         Some(m) => m,
-        None => return HashMap::new(),
+        None => return BTreeMap::new(),
     };
 
     ul_map
@@ -734,7 +734,7 @@ mod tests {
     use crate::graph::Graph;
     use crate::layout::types::{EdgeLabel, GraphLabel, LabelPos, NodeLabel};
     use crate::layout::util::build_layer_matrix;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     fn new_graph() -> Graph<NodeLabel, EdgeLabel> {
         let mut g = Graph::new();
@@ -965,7 +965,7 @@ mod tests {
 
     #[test]
     fn has_conflict_regardless_of_edge_orientation() {
-        let mut conflicts: Conflicts = HashMap::new();
+        let mut conflicts: Conflicts = BTreeMap::new();
         add_conflict(&mut conflicts, "b", "a");
         assert!(has_conflict(&conflicts, "a", "b"));
         assert!(has_conflict(&conflicts, "b", "a"));
@@ -973,7 +973,7 @@ mod tests {
 
     #[test]
     fn has_conflict_works_for_multiple_conflicts_with_same_node() {
-        let mut conflicts: Conflicts = HashMap::new();
+        let mut conflicts: Conflicts = BTreeMap::new();
         add_conflict(&mut conflicts, "a", "b");
         add_conflict(&mut conflicts, "a", "c");
         assert!(has_conflict(&conflicts, "a", "b"));
@@ -991,7 +991,7 @@ mod tests {
         g.set_node("b".to_string(), Some(node(1, 0)));
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1010,7 +1010,7 @@ mod tests {
         g.set_edge("a", "b", None, None);
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1031,7 +1031,7 @@ mod tests {
         g.set_edge("b", "c", None, None);
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1055,7 +1055,7 @@ mod tests {
         g.set_edge("b", "c", None, None);
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1078,7 +1078,7 @@ mod tests {
         g.set_edge("b", "c", None, None);
 
         let layering = build_layer_matrix(&g);
-        let mut conflicts: Conflicts = HashMap::new();
+        let mut conflicts: Conflicts = BTreeMap::new();
         add_conflict(&mut conflicts, "a", "c");
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
@@ -1104,7 +1104,7 @@ mod tests {
         g.set_edge("b", "d", None, None);
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1131,7 +1131,7 @@ mod tests {
         g.set_edge("c", "d", None, None);
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1158,7 +1158,7 @@ mod tests {
         g.set_path(&["a", "c", "d"], None);
 
         let layering = build_layer_matrix(&g);
-        let conflicts: Conflicts = HashMap::new();
+        let conflicts: Conflicts = BTreeMap::new();
 
         let result = vertical_alignment(&g, &layering, &conflicts, &|v: &str| {
             g.predecessors(v).unwrap_or_default()
@@ -1181,8 +1181,8 @@ mod tests {
     fn hc_single_node_at_origin() {
         let mut g = new_graph();
         g.set_node("a".to_string(), Some(node(0, 0)));
-        let root = HashMap::from([("a".to_string(), "a".to_string())]);
-        let align = HashMap::from([("a".to_string(), "a".to_string())]);
+        let root = BTreeMap::from([("a".to_string(), "a".to_string())]);
+        let align = BTreeMap::from([("a".to_string(), "a".to_string())]);
         let layering = build_layer_matrix(&g);
         let xs = horizontal_compaction(&g, &layering, &root, &align, false);
         assert_eq!(xs["a"], 0.0);
@@ -1194,11 +1194,11 @@ mod tests {
         g.graph_label_mut::<GraphLabel>().unwrap().nodesep = 100.0;
         g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
         g.set_node("b".to_string(), Some(node_w(0, 1, 200.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
         ]);
@@ -1214,11 +1214,11 @@ mod tests {
         g.graph_label_mut::<GraphLabel>().unwrap().edgesep = 20.0;
         g.set_node("a".to_string(), Some(node_wd(0, 0, 100.0, "true")));
         g.set_node("b".to_string(), Some(node_wd(0, 1, 200.0, "true")));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
         ]);
@@ -1233,11 +1233,11 @@ mod tests {
         let mut g = new_graph();
         g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
         g.set_node("b".to_string(), Some(node_w(1, 0, 200.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "a".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "b".to_string()),
             ("b".to_string(), "a".to_string()),
         ]);
@@ -1254,12 +1254,12 @@ mod tests {
         g.set_node("a".to_string(), Some(node_w(0, 0, 100.0)));
         g.set_node("b".to_string(), Some(node_w(1, 1, 200.0)));
         g.set_node("c".to_string(), Some(node_w(1, 0, 50.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "a".to_string()),
             ("c".to_string(), "c".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "b".to_string()),
             ("b".to_string(), "a".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1279,13 +1279,13 @@ mod tests {
         g.set_node("b".to_string(), Some(node_w(0, 1, 200.0)));
         g.set_node("c".to_string(), Some(node_w(1, 0, 50.0)));
         g.set_node("d".to_string(), Some(node_w(1, 1, 80.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
             ("d".to_string(), "b".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "d".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1310,13 +1310,13 @@ mod tests {
         g.set_node("b".to_string(), Some(node_w(0, 1, 150.0)));
         g.set_node("c".to_string(), Some(node_w(1, 0, 60.0)));
         g.set_node("d".to_string(), Some(node_w(1, 1, 70.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "a".to_string()),
             ("d".to_string(), "b".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "c".to_string()),
             ("b".to_string(), "d".to_string()),
             ("c".to_string(), "a".to_string()),
@@ -1338,13 +1338,13 @@ mod tests {
         g.set_node("b".to_string(), Some(node_w(0, 1, 70.0)));
         g.set_node("c".to_string(), Some(node_w(1, 0, 60.0)));
         g.set_node("d".to_string(), Some(node_w(1, 1, 150.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "a".to_string()),
             ("d".to_string(), "b".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "c".to_string()),
             ("b".to_string(), "d".to_string()),
             ("c".to_string(), "a".to_string()),
@@ -1369,7 +1369,7 @@ mod tests {
         g.set_node("e".to_string(), Some(node_w(1, 2, 50.0)));
         g.set_node("f".to_string(), Some(node_w(2, 0, 50.0)));
         g.set_node("g".to_string(), Some(node_w(2, 1, 50.0)));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1378,7 +1378,7 @@ mod tests {
             ("f".to_string(), "f".to_string()),
             ("g".to_string(), "d".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "e".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1408,12 +1408,12 @@ mod tests {
             Some(node_wdl(0, 1, 200.0, "edge-label", LabelPos::Left)),
         );
         g.set_node("c".to_string(), Some(node_wd(0, 2, 300.0, "edge")));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1435,12 +1435,12 @@ mod tests {
             Some(node_wdl(0, 1, 200.0, "edge-label", LabelPos::Center)),
         );
         g.set_node("c".to_string(), Some(node_wd(0, 2, 300.0, "edge")));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1462,12 +1462,12 @@ mod tests {
             Some(node_wdl(0, 1, 200.0, "edge-label", LabelPos::Right)),
         );
         g.set_node("c".to_string(), Some(node_wd(0, 2, 300.0, "edge")));
-        let root = HashMap::from([
+        let root = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
         ]);
-        let align = HashMap::from([
+        let align = BTreeMap::from([
             ("a".to_string(), "a".to_string()),
             ("b".to_string(), "b".to_string()),
             ("c".to_string(), "c".to_string()),
@@ -1485,11 +1485,11 @@ mod tests {
 
     #[test]
     fn align_coordinates_single_node() {
-        let mut xss: XssMap = HashMap::new();
-        xss.insert("ul".to_string(), HashMap::from([("a".to_string(), 50.0)]));
-        xss.insert("ur".to_string(), HashMap::from([("a".to_string(), 100.0)]));
-        xss.insert("dl".to_string(), HashMap::from([("a".to_string(), 50.0)]));
-        xss.insert("dr".to_string(), HashMap::from([("a".to_string(), 200.0)]));
+        let mut xss: XssMap = BTreeMap::new();
+        xss.insert("ul".to_string(), BTreeMap::from([("a".to_string(), 50.0)]));
+        xss.insert("ur".to_string(), BTreeMap::from([("a".to_string(), 100.0)]));
+        xss.insert("dl".to_string(), BTreeMap::from([("a".to_string(), 50.0)]));
+        xss.insert("dr".to_string(), BTreeMap::from([("a".to_string(), 200.0)]));
 
         let align_to = xss["ul"].clone();
         align_coordinates(&mut xss, "ul", &align_to);
@@ -1502,22 +1502,22 @@ mod tests {
 
     #[test]
     fn align_coordinates_multiple_nodes() {
-        let mut xss: XssMap = HashMap::new();
+        let mut xss: XssMap = BTreeMap::new();
         xss.insert(
             "ul".to_string(),
-            HashMap::from([("a".to_string(), 50.0), ("b".to_string(), 1000.0)]),
+            BTreeMap::from([("a".to_string(), 50.0), ("b".to_string(), 1000.0)]),
         );
         xss.insert(
             "ur".to_string(),
-            HashMap::from([("a".to_string(), 100.0), ("b".to_string(), 900.0)]),
+            BTreeMap::from([("a".to_string(), 100.0), ("b".to_string(), 900.0)]),
         );
         xss.insert(
             "dl".to_string(),
-            HashMap::from([("a".to_string(), 150.0), ("b".to_string(), 800.0)]),
+            BTreeMap::from([("a".to_string(), 150.0), ("b".to_string(), 800.0)]),
         );
         xss.insert(
             "dr".to_string(),
-            HashMap::from([("a".to_string(), 200.0), ("b".to_string(), 700.0)]),
+            BTreeMap::from([("a".to_string(), 200.0), ("b".to_string(), 700.0)]),
         );
 
         let align_to = xss["ul"].clone();
@@ -1555,22 +1555,22 @@ mod tests {
             }),
         );
 
-        let mut xss: XssMap = HashMap::new();
+        let mut xss: XssMap = BTreeMap::new();
         xss.insert(
             "ul".to_string(),
-            HashMap::from([("a".to_string(), 0.0), ("b".to_string(), 1000.0)]),
+            BTreeMap::from([("a".to_string(), 0.0), ("b".to_string(), 1000.0)]),
         );
         xss.insert(
             "ur".to_string(),
-            HashMap::from([("a".to_string(), -5.0), ("b".to_string(), 1000.0)]),
+            BTreeMap::from([("a".to_string(), -5.0), ("b".to_string(), 1000.0)]),
         );
         xss.insert(
             "dl".to_string(),
-            HashMap::from([("a".to_string(), 5.0), ("b".to_string(), 2000.0)]),
+            BTreeMap::from([("a".to_string(), 5.0), ("b".to_string(), 2000.0)]),
         );
         xss.insert(
             "dr".to_string(),
-            HashMap::from([("a".to_string(), 0.0), ("b".to_string(), 200.0)]),
+            BTreeMap::from([("a".to_string(), 0.0), ("b".to_string(), 200.0)]),
         );
 
         let (key, _xs) = find_smallest_width_alignment(&g, &xss);
@@ -1602,10 +1602,10 @@ mod tests {
             }),
         );
 
-        let mut xss: XssMap = HashMap::new();
+        let mut xss: XssMap = BTreeMap::new();
         xss.insert(
             "ul".to_string(),
-            HashMap::from([
+            BTreeMap::from([
                 ("a".to_string(), 0.0),
                 ("b".to_string(), 100.0),
                 ("c".to_string(), 75.0),
@@ -1613,7 +1613,7 @@ mod tests {
         );
         xss.insert(
             "ur".to_string(),
-            HashMap::from([
+            BTreeMap::from([
                 ("a".to_string(), 0.0),
                 ("b".to_string(), 100.0),
                 ("c".to_string(), 80.0),
@@ -1621,7 +1621,7 @@ mod tests {
         );
         xss.insert(
             "dl".to_string(),
-            HashMap::from([
+            BTreeMap::from([
                 ("a".to_string(), 0.0),
                 ("b".to_string(), 100.0),
                 ("c".to_string(), 85.0),
@@ -1629,7 +1629,7 @@ mod tests {
         );
         xss.insert(
             "dr".to_string(),
-            HashMap::from([
+            BTreeMap::from([
                 ("a".to_string(), 0.0),
                 ("b".to_string(), 100.0),
                 ("c".to_string(), 90.0),
@@ -1646,11 +1646,11 @@ mod tests {
 
     #[test]
     fn balance_single_node_shared_median() {
-        let mut xss: XssMap = HashMap::new();
-        xss.insert("ul".to_string(), HashMap::from([("a".to_string(), 0.0)]));
-        xss.insert("ur".to_string(), HashMap::from([("a".to_string(), 100.0)]));
-        xss.insert("dl".to_string(), HashMap::from([("a".to_string(), 100.0)]));
-        xss.insert("dr".to_string(), HashMap::from([("a".to_string(), 200.0)]));
+        let mut xss: XssMap = BTreeMap::new();
+        xss.insert("ul".to_string(), BTreeMap::from([("a".to_string(), 0.0)]));
+        xss.insert("ur".to_string(), BTreeMap::from([("a".to_string(), 100.0)]));
+        xss.insert("dl".to_string(), BTreeMap::from([("a".to_string(), 100.0)]));
+        xss.insert("dr".to_string(), BTreeMap::from([("a".to_string(), 200.0)]));
 
         let result = balance(&xss, None);
         assert_eq!(result["a"], 100.0);
@@ -1658,11 +1658,11 @@ mod tests {
 
     #[test]
     fn balance_single_node_average_of_different_medians() {
-        let mut xss: XssMap = HashMap::new();
-        xss.insert("ul".to_string(), HashMap::from([("a".to_string(), 0.0)]));
-        xss.insert("ur".to_string(), HashMap::from([("a".to_string(), 75.0)]));
-        xss.insert("dl".to_string(), HashMap::from([("a".to_string(), 125.0)]));
-        xss.insert("dr".to_string(), HashMap::from([("a".to_string(), 200.0)]));
+        let mut xss: XssMap = BTreeMap::new();
+        xss.insert("ul".to_string(), BTreeMap::from([("a".to_string(), 0.0)]));
+        xss.insert("ur".to_string(), BTreeMap::from([("a".to_string(), 75.0)]));
+        xss.insert("dl".to_string(), BTreeMap::from([("a".to_string(), 125.0)]));
+        xss.insert("dr".to_string(), BTreeMap::from([("a".to_string(), 200.0)]));
 
         let result = balance(&xss, None);
         assert_eq!(result["a"], 100.0);
@@ -1670,22 +1670,22 @@ mod tests {
 
     #[test]
     fn balance_multiple_nodes() {
-        let mut xss: XssMap = HashMap::new();
+        let mut xss: XssMap = BTreeMap::new();
         xss.insert(
             "ul".to_string(),
-            HashMap::from([("a".to_string(), 0.0), ("b".to_string(), 50.0)]),
+            BTreeMap::from([("a".to_string(), 0.0), ("b".to_string(), 50.0)]),
         );
         xss.insert(
             "ur".to_string(),
-            HashMap::from([("a".to_string(), 75.0), ("b".to_string(), 0.0)]),
+            BTreeMap::from([("a".to_string(), 75.0), ("b".to_string(), 0.0)]),
         );
         xss.insert(
             "dl".to_string(),
-            HashMap::from([("a".to_string(), 125.0), ("b".to_string(), 60.0)]),
+            BTreeMap::from([("a".to_string(), 125.0), ("b".to_string(), 60.0)]),
         );
         xss.insert(
             "dr".to_string(),
-            HashMap::from([("a".to_string(), 200.0), ("b".to_string(), 75.0)]),
+            BTreeMap::from([("a".to_string(), 200.0), ("b".to_string(), 75.0)]),
         );
 
         let result = balance(&xss, None);

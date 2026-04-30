@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Options for the layout algorithm.
 #[derive(Debug, Clone)]
@@ -208,7 +208,7 @@ pub struct NodeLabel {
     /// For "selfedge" dummy nodes: the original edge label.
     pub self_edge_data_label: Option<EdgeLabel>,
     /// Extra properties that don't have dedicated fields.
-    pub extra: HashMap<String, String>,
+    pub extra: BTreeMap<String, String>,
 }
 
 impl Default for NodeLabel {
@@ -243,7 +243,7 @@ impl Default for NodeLabel {
             self_edges: Vec::new(),
             self_edge_data_e: None,
             self_edge_data_label: None,
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 }

@@ -9,6 +9,7 @@
 pub mod acyclic;
 pub mod add_border_segments;
 pub mod coordinate_system;
+pub mod intersect;
 pub mod nesting_graph;
 pub mod normalize;
 pub mod order;
@@ -164,6 +165,19 @@ pub fn layout(g: &mut Graph<NodeLabel, EdgeLabel>, opts: Option<LayoutOptions>) 
 
     // 25. Assign node intersects
     assign_node_intersects(g);
+
+    // 25b. Drop adjacent duplicate vertices in edge paths. The assembly
+    // sequence (intersect → dummy-chain points → intersect) sometimes
+    // produces two consecutive points that coincide within float
+    // tolerance — most often when the source/target intersection lands
+    // exactly on the first/last dummy-chain point, or when two dummy
+    // nodes on the same edge sit at identical (x, y). Renderers turn
+    // those into zero-length SVG line segments which downstream byte-
+    // exact tests treat as a diff. Mirrors `dagre.js` behavior in
+    // practice — dagre.js itself does not produce the duplicates as
+    // often because of how it walks dummy chains; the dedupe is cheap
+    // and safe either way.
+    dedupe_adjacent_edge_points(g);
 
     // 26. Reverse points for reversed edges
     reverse_points_for_reversed_edges(g);
@@ -521,6 +535,24 @@ fn fixup_edge_label_coords(g: &mut Graph<NodeLabel, EdgeLabel>) {
                     // No adjustment needed
                 }
             }
+        }
+    }
+}
+
+/// Drop consecutive points whose `(x, y)` coincide within `EPSILON`. Runs
+/// in-place on every edge's `points` Vec. Preserves the first occurrence.
+const DEDUPE_EPSILON: f64 = 1e-4;
+
+fn dedupe_adjacent_edge_points(g: &mut Graph<NodeLabel, EdgeLabel>) {
+    let edges = g.edges();
+    for e in edges {
+        if let Some(label) = g.edge_mut(&e.v, &e.w, e.name.as_deref()) {
+            if label.points.len() < 2 {
+                continue;
+            }
+            label.points.dedup_by(|a, b| {
+                (a.x - b.x).abs() < DEDUPE_EPSILON && (a.y - b.y).abs() < DEDUPE_EPSILON
+            });
         }
     }
 }

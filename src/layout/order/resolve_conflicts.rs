@@ -6,7 +6,7 @@
 //! Based on Forster, "A Fast and Simple Heuristic for Constrained Two-Level
 //! Crossing Reduction."
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::barycenter::BarycenterEntry;
 use crate::graph::Graph;
@@ -43,7 +43,7 @@ pub(crate) fn resolve_conflicts(
     cg: &Graph<(), ()>,
 ) -> Vec<ResolvedEntry> {
     // Build mapped entries keyed by node name
-    let mut mapped: HashMap<String, usize> = HashMap::new();
+    let mut mapped: BTreeMap<String, usize> = BTreeMap::new();
     let mut all_entries: Vec<MappedEntry> = Vec::with_capacity(entries.len());
 
     for (i, entry) in entries.iter().enumerate() {

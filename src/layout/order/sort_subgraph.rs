@@ -45,8 +45,8 @@ pub(crate) fn sort_subgraph(
     let mut barycenters = barycenter::barycenter(g, &movable);
 
     // For each entry that is itself a subgraph, recursively sort it and merge
-    let mut subgraph_results: std::collections::HashMap<String, SubgraphResult> =
-        std::collections::HashMap::new();
+    let mut subgraph_results: std::collections::BTreeMap<String, SubgraphResult> =
+        std::collections::BTreeMap::new();
 
     for entry in &mut barycenters {
         let children = g.children(Some(&entry.v));

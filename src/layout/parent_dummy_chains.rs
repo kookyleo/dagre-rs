@@ -5,7 +5,7 @@
 
 use super::types::*;
 use crate::graph::Graph;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 struct PostorderNum {
@@ -119,15 +119,15 @@ pub(crate) fn parent_dummy_chains(g: &mut Graph<NodeLabel, EdgeLabel>) {
 }
 
 /// Build postorder numbering of the compound hierarchy.
-fn postorder(g: &Graph<NodeLabel, EdgeLabel>) -> HashMap<String, PostorderNum> {
-    let mut result: HashMap<String, PostorderNum> = HashMap::new();
+fn postorder(g: &Graph<NodeLabel, EdgeLabel>) -> BTreeMap<String, PostorderNum> {
+    let mut result: BTreeMap<String, PostorderNum> = BTreeMap::new();
     let mut lim: usize = 0;
 
     fn dfs(
         g: &Graph<NodeLabel, EdgeLabel>,
         v: &str,
         lim: &mut usize,
-        result: &mut HashMap<String, PostorderNum>,
+        result: &mut BTreeMap<String, PostorderNum>,
     ) {
         let low = *lim;
         let children = g.children(Some(v));
@@ -149,7 +149,7 @@ fn postorder(g: &Graph<NodeLabel, EdgeLabel>) -> HashMap<String, PostorderNum> {
 /// Find the path from v to w through their LCA in the compound hierarchy.
 fn find_path(
     g: &Graph<NodeLabel, EdgeLabel>,
-    postorder_nums: &HashMap<String, PostorderNum>,
+    postorder_nums: &BTreeMap<String, PostorderNum>,
     v: &str,
     w: &str,
 ) -> PathData {

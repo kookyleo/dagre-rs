@@ -8,7 +8,7 @@
 use super::types::*;
 use super::util::{add_border_node, add_dummy_node};
 use crate::graph::Graph;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Run nesting graph transformation.
 /// dagre.js calls this for ALL graphs (not just compound) to ensure the graph
@@ -55,7 +55,7 @@ fn dfs_nesting(
     node_sep: usize,
     weight: i32,
     height: usize,
-    depths: &HashMap<String, usize>,
+    depths: &BTreeMap<String, usize>,
     v: &str,
 ) {
     let children = g.children(Some(v));
@@ -145,14 +145,14 @@ fn dfs_nesting(
     }
 }
 
-fn tree_depths(g: &Graph<NodeLabel, EdgeLabel>) -> HashMap<String, usize> {
-    let mut depths = HashMap::new();
+fn tree_depths(g: &Graph<NodeLabel, EdgeLabel>) -> BTreeMap<String, usize> {
+    let mut depths = BTreeMap::new();
 
     fn dfs_depth(
         g: &Graph<NodeLabel, EdgeLabel>,
         v: &str,
         depth: usize,
-        depths: &mut HashMap<String, usize>,
+        depths: &mut BTreeMap<String, usize>,
     ) {
         let children = g.children(Some(v));
         for child in &children {

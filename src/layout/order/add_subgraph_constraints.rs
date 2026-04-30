@@ -4,7 +4,7 @@
 //! and adds constraint edges between sibling subgraphs to preserve the
 //! ordering discovered during the current sweep.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::graph::Graph;
 use crate::layout::types::{EdgeLabel, NodeLabel};
@@ -20,7 +20,7 @@ pub(crate) fn add_subgraph_constraints(
     cg: &mut Graph<(), ()>,
     vs: &[String],
 ) {
-    let mut prev: HashMap<String, String> = HashMap::new();
+    let mut prev: BTreeMap<String, String> = BTreeMap::new();
     let mut root_prev: Option<String> = None;
 
     for v in vs {

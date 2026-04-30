@@ -4953,3 +4953,172 @@ fn layout_can_layout_subgraphs_with_different_rankdirs() {
         );
     }
 }
+
+// ============================================================
+// Edge-point dedupe (`dedupe_adjacent_edge_points`)
+// ============================================================
+
+#[test]
+fn layout_does_not_panic_on_empty_subgraph_nodes() {
+    // Three flavors of "empty cluster" pathologies that downstream
+    // pipelines (mermaid extractor, hand-built graphs) end up shipping:
+    //
+    //   1. Compound graph contains a node with shape "cluster" but no
+    //      `set_parent` calls naming it as a parent.
+    //   2. Compound graph contains a node nested as a parent's child
+    //      that itself has no children — i.e. an empty inner cluster.
+    //   3. Compound graph with a single childless cluster whose node
+    //      label sits in the graph but is referenced by no edge.
+    //
+    // None of these may panic. Exact coordinates aren't asserted —
+    // the contract here is "produces a valid result, doesn't crash".
+    fn run<F: FnOnce(&mut Graph<NodeLabel, EdgeLabel>)>(name: &str, build: F) {
+        let mut g = make_graph();
+        build(&mut g);
+        layout(&mut g, None);
+        // Every non-dummy node should have coordinates assigned.
+        for v in g.nodes() {
+            let n = g.node(&v).unwrap();
+            if n.dummy.is_some() {
+                continue;
+            }
+            assert!(
+                n.x.is_some() && n.y.is_some(),
+                "{name}: node {v} has no coords after layout"
+            );
+        }
+    }
+
+    run("isolated_empty_cluster", |g| {
+        // Cluster node sitting in the graph alone.
+        g.set_node("empty".to_string(), Some(NodeLabel::default()));
+        set_node(g, "a", 50.0, 30.0);
+        set_node(g, "b", 50.0, 30.0);
+        g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    });
+
+    run("empty_inner_cluster", |g| {
+        // outer { inner_empty (no children), a }
+        g.set_node("outer".to_string(), Some(NodeLabel::default()));
+        g.set_node("inner_empty".to_string(), Some(NodeLabel::default()));
+        set_node(g, "a", 40.0, 30.0);
+        set_node(g, "b", 40.0, 30.0);
+        g.set_parent("inner_empty", Some("outer"));
+        g.set_parent("a", Some("outer"));
+        g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    });
+
+    run("childless_cluster_no_edges", |g| {
+        // Cluster declared but neither has children nor participates
+        // in any edge — pure dangling node.
+        g.set_node("dangling_cluster".to_string(), Some(NodeLabel::default()));
+        set_node(g, "lone_leaf", 30.0, 20.0);
+    });
+
+    run("edge_endpoint_is_cluster", |g| {
+        // Edge with a cluster (compound node) as one endpoint. Mermaid
+        // ships this when an edge targets a subgraph as a whole.
+        g.set_node("cluster".to_string(), Some(NodeLabel::default()));
+        set_node(g, "child", 40.0, 30.0);
+        set_node(g, "outside", 40.0, 30.0);
+        g.set_parent("child", Some("cluster"));
+        g.set_edge("outside", "cluster", Some(EdgeLabel::default()), None);
+    });
+
+    run("cross_cluster_edge", |g| {
+        // Edge crossing two different cluster boundaries (cluster_a's
+        // child → cluster_b's child) — forces the layout pipeline to
+        // route across an LCA that is the graph root.
+        g.set_node("cluster_a".to_string(), Some(NodeLabel::default()));
+        g.set_node("cluster_b".to_string(), Some(NodeLabel::default()));
+        set_node(g, "a_child", 40.0, 30.0);
+        set_node(g, "b_child", 40.0, 30.0);
+        g.set_parent("a_child", Some("cluster_a"));
+        g.set_parent("b_child", Some("cluster_b"));
+        g.set_edge("a_child", "b_child", Some(EdgeLabel::default()), None);
+    });
+}
+
+#[test]
+fn layout_output_is_run_to_run_deterministic() {
+    // Build a graph rich enough to exercise nesting + ordering +
+    // network simplex (any of which historically used unordered maps
+    // internally). Run layout repeatedly on fresh copies and assert
+    // node coords + edge points are bit-identical across runs.
+    fn fresh() -> Graph<NodeLabel, EdgeLabel> {
+        let mut g = make_graph();
+        for v in &["a", "b", "c", "d", "e", "f", "g", "h"] {
+            set_node(&mut g, v, 40.0, 30.0);
+        }
+        // sg encloses {c, d, e}.
+        g.set_node("sg".to_string(), Some(NodeLabel::default()));
+        for v in &["c", "d", "e"] {
+            g.set_parent(v, Some("sg"));
+        }
+        g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+        g.set_edge("a", "c", Some(EdgeLabel::default()), None);
+        g.set_edge("b", "d", Some(EdgeLabel::default()), None);
+        g.set_edge("c", "e", Some(EdgeLabel::default()), None);
+        g.set_edge("d", "e", Some(EdgeLabel::default()), None);
+        g.set_edge("e", "f", Some(EdgeLabel::default()), None);
+        g.set_edge("f", "g", Some(EdgeLabel::default()), None);
+        g.set_edge("f", "h", Some(EdgeLabel::default()), None);
+        g.set_edge("g", "h", Some(EdgeLabel::default()), None);
+        g
+    }
+
+    type Snapshot = Vec<(String, Option<f64>, Option<f64>)>;
+    let mut snapshots: Vec<Snapshot> = Vec::new();
+    for _ in 0..5 {
+        let mut g = fresh();
+        layout(&mut g, None);
+        let mut snap: Snapshot = g
+            .nodes()
+            .into_iter()
+            .map(|v| {
+                let n = g.node(&v).unwrap();
+                (v, n.x, n.y)
+            })
+            .collect();
+        snap.sort_by(|a, b| a.0.cmp(&b.0));
+        snapshots.push(snap);
+    }
+    for i in 1..snapshots.len() {
+        assert_eq!(
+            snapshots[0], snapshots[i],
+            "layout output diverged across runs (run 0 vs run {i})"
+        );
+    }
+}
+
+#[test]
+fn layout_does_not_emit_consecutive_duplicate_edge_points() {
+    // Long-edge case: a → b → c with c forced two ranks below a. The
+    // dummy chain produced by normalize can stack a node on top of the
+    // intersect point, which previously yielded a zero-length first
+    // segment in `points`.
+    let mut g = make_graph();
+    for v in &["a", "b", "c"] {
+        set_node(&mut g, v, 50.0, 50.0);
+    }
+    g.set_edge("a", "b", Some(EdgeLabel::default()), None);
+    g.set_edge("a", "c", Some(EdgeLabel::default()), None);
+    g.set_edge("b", "c", Some(EdgeLabel::default()), None);
+
+    layout(&mut g, None);
+
+    for e in g.edges() {
+        let label = g.edge(&e.v, &e.w, e.name.as_deref()).unwrap();
+        for w in label.points.windows(2) {
+            let (a, b) = (&w[0], &w[1]);
+            assert!(
+                (a.x - b.x).abs() >= 1e-4 || (a.y - b.y).abs() >= 1e-4,
+                "edge {:?}->{:?}: adjacent points coincide at ({}, {})",
+                e.v,
+                e.w,
+                a.x,
+                a.y
+            );
+        }
+    }
+}

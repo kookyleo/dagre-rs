@@ -3,7 +3,7 @@
 use super::types::*;
 use crate::graph::{Graph, GraphOptions};
 #[cfg(test)]
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Add a dummy node to the graph and return its ID.
 pub(crate) fn add_dummy_node(
@@ -109,147 +109,46 @@ pub(crate) fn as_non_compound_graph(
 /// * stateStart / stateEnd use ellipse/circle intersection (upstream sets
 ///   `node.intersect = intersectCircle(node, width/2, point)`).
 /// * All other shapes fall back to `intersect_rect`.
+///
+/// This is a thin dispatcher over the public helpers in
+/// [`crate::layout::intersect`] — downstream callers that need to clip
+/// edges to non-built-in shapes (hexagon, trapezoid, …) should call
+/// those helpers directly with their own polygon vertices.
 pub(crate) fn intersect_node(rect: &NodeLabel, point: &Point) -> Point {
+    let cx = rect.x.unwrap_or(0.0);
+    let cy = rect.y.unwrap_or(0.0);
     match rect.shape.as_deref() {
-        Some("diamond") => return intersect_diamond(rect, point),
+        Some("diamond") => {
+            let w2 = rect.width / 2.0;
+            let h2 = rect.height / 2.0;
+            let verts = [
+                Point { x: cx, y: cy - h2 },
+                Point { x: cx + w2, y: cy },
+                Point { x: cx, y: cy + h2 },
+                Point { x: cx - w2, y: cy },
+            ];
+            super::intersect::intersect_polygon(&verts, &Point { x: cx, y: cy }, point)
+        }
         Some("stateStart" | "stateEnd" | "state_start" | "state_end" | "start" | "end") => {
-            return intersect_ellipse(rect, point);
+            super::intersect::intersect_ellipse(cx, cy, rect.width / 2.0, rect.height / 2.0, point)
         }
-        _ => {}
-    }
-    intersect_rect(rect, point)
-}
-
-/// Ellipse (circle) intersection: finds where the ray from center to `point`
-/// exits the ellipse defined by `rx = width/2, ry = height/2`.
-///
-/// Ports upstream `intersectEllipse(node, rx, ry, point)`:
-/// ```text
-/// var px = cx - point.x, py = cy - point.y;
-/// var det = sqrt(rx*rx*py*py + ry*ry*px*px);
-/// var dx = |rx*ry*px/det|; if point.x < cx: dx = -dx;
-/// var dy = |rx*ry*py/det|; if point.y < cy: dy = -dy;
-/// return { x: cx+dx, y: cy+dy }
-/// ```
-fn intersect_ellipse(rect: &NodeLabel, point: &Point) -> Point {
-    let cx = rect.x.unwrap_or(0.0);
-    let cy = rect.y.unwrap_or(0.0);
-    let rx = rect.width / 2.0;
-    let ry = rect.height / 2.0;
-
-    let px = cx - point.x;
-    let py = cy - point.y;
-    if px == 0.0 && py == 0.0 {
-        return Point { x: cx, y: cy };
-    }
-    let det = (rx * rx * py * py + ry * ry * px * px).sqrt();
-    if det == 0.0 {
-        return Point { x: cx, y: cy };
-    }
-    let mut dx = (rx * ry * px / det).abs();
-    if point.x < cx {
-        dx = -dx;
-    }
-    let mut dy = (rx * ry * py / det).abs();
-    if point.y < cy {
-        dy = -dy;
-    }
-    Point {
-        x: cx + dx,
-        y: cy + dy,
+        _ => super::intersect::intersect_rect(cx, cy, rect.width, rect.height, point),
     }
 }
 
-/// Intersect the ray from diamond center toward `point` with the diamond boundary.
-///
-/// Mirrors dagre-d3-es `intersectPolygon` with the diamond polygon:
-///   vertices = [(cx, cy - h/2), (cx + w/2, cy), (cx, cy + h/2), (cx - w/2, cy)]
-/// where the diamond is parametrized so w == rect.width and h == rect.height.
-fn intersect_diamond(rect: &NodeLabel, point: &Point) -> Point {
-    let cx = rect.x.unwrap_or(0.0);
-    let cy = rect.y.unwrap_or(0.0);
-    let w2 = rect.width / 2.0;
-    let h2 = rect.height / 2.0;
-
-    // Diamond vertices in order.
-    let poly = [(cx, cy - h2), (cx + w2, cy), (cx, cy + h2), (cx - w2, cy)];
-
-    let dx = point.x - cx;
-    let dy = point.y - cy;
-
-    if dx == 0.0 && dy == 0.0 {
-        return Point { x: cx, y: cy };
-    }
-
-    let mut best_t: Option<f64> = None;
-    let n = poly.len();
-    for i in 0..n {
-        let (x1, y1) = poly[i];
-        let (x2, y2) = poly[(i + 1) % n];
-        let ex = x2 - x1;
-        let ey = y2 - y1;
-        let fx = x1 - cx;
-        let fy = y1 - cy;
-        let denom = dx * ey - dy * ex;
-        if denom.abs() < 1e-10 {
-            continue;
-        }
-        let t = (fx * ey - fy * ex) / denom;
-        let u = (fx * dy - fy * dx) / denom;
-        if t >= 0.0 && (0.0..=1.0).contains(&u) {
-            match best_t {
-                None => best_t = Some(t),
-                Some(prev) if t < prev => best_t = Some(t),
-                _ => {}
-            }
-        }
-    }
-
-    match best_t {
-        Some(t) => Point {
-            x: cx + dx * t,
-            y: cy + dy * t,
-        },
-        // Fallback: point itself (degenerate, should not happen).
-        None => Point {
-            x: point.x,
-            y: point.y,
-        },
-    }
-}
-
-/// Find rectangle-line intersection point.
+/// Test-only `&NodeLabel` adaptor over [`crate::layout::intersect::intersect_rect`].
+/// The layout pipeline itself goes through [`intersect_node`]; this exists
+/// solely so existing tests can keep their `intersect_rect(&rect, &point)`
+/// call shape without rewriting.
+#[cfg(test)]
 pub(crate) fn intersect_rect(rect: &NodeLabel, point: &Point) -> Point {
-    let x = rect.x.unwrap_or(0.0);
-    let y = rect.y.unwrap_or(0.0);
-    let dx = point.x - x;
-    let dy = point.y - y;
-    let mut w = rect.width / 2.0;
-    let mut h = rect.height / 2.0;
-
-    if dx == 0.0 && dy == 0.0 {
-        return Point { x, y };
-    }
-
-    let (sx, sy);
-    if dy.abs() * w > dx.abs() * h {
-        if dy < 0.0 {
-            h = -h;
-        }
-        sx = if dy != 0.0 { h * dx / dy } else { 0.0 };
-        sy = h;
-    } else {
-        if dx < 0.0 {
-            w = -w;
-        }
-        sx = w;
-        sy = if dx != 0.0 { w * dy / dx } else { 0.0 };
-    }
-
-    Point {
-        x: x + sx,
-        y: y + sy,
-    }
+    super::intersect::intersect_rect(
+        rect.x.unwrap_or(0.0),
+        rect.y.unwrap_or(0.0),
+        rect.width,
+        rect.height,
+        point,
+    )
 }
 
 /// Build a 2D matrix of node IDs indexed by [rank][order].
@@ -379,10 +278,10 @@ pub(crate) fn add_border_node(
 #[cfg(test)]
 pub(crate) fn successor_weights(
     g: &Graph<NodeLabel, EdgeLabel>,
-) -> HashMap<String, HashMap<String, i32>> {
-    let mut result = HashMap::new();
+) -> BTreeMap<String, BTreeMap<String, i32>> {
+    let mut result = BTreeMap::new();
     for v in g.nodes() {
-        let mut sucs = HashMap::new();
+        let mut sucs = BTreeMap::new();
         if let Some(edges) = g.out_edges(&v, None) {
             for e in edges {
                 let w = g
@@ -400,10 +299,10 @@ pub(crate) fn successor_weights(
 #[cfg(test)]
 pub(crate) fn predecessor_weights(
     g: &Graph<NodeLabel, EdgeLabel>,
-) -> HashMap<String, HashMap<String, i32>> {
-    let mut result = HashMap::new();
+) -> BTreeMap<String, BTreeMap<String, i32>> {
+    let mut result = BTreeMap::new();
     for v in g.nodes() {
-        let mut preds = HashMap::new();
+        let mut preds = BTreeMap::new();
         if let Some(edges) = g.in_edges(&v, None) {
             for e in edges {
                 let w = g

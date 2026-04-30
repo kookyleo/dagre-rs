@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::graph::{Edge, Graph};
 use crate::util::unique_id;
@@ -61,15 +61,15 @@ pub fn undo(g: &mut Graph<NodeLabel, EdgeLabel>) {
 /// Find feedback arc set using DFS.
 fn dfs_fas(g: &Graph<NodeLabel, EdgeLabel>) -> Vec<Edge> {
     let mut fas = Vec::new();
-    let mut stack: HashMap<String, bool> = HashMap::new();
-    let mut visited: HashMap<String, bool> = HashMap::new();
+    let mut stack: BTreeMap<String, bool> = BTreeMap::new();
+    let mut visited: BTreeMap<String, bool> = BTreeMap::new();
 
     fn dfs(
         v: &str,
         g: &Graph<NodeLabel, EdgeLabel>,
         fas: &mut Vec<Edge>,
-        stack: &mut HashMap<String, bool>,
-        visited: &mut HashMap<String, bool>,
+        stack: &mut BTreeMap<String, bool>,
+        visited: &mut BTreeMap<String, bool>,
     ) {
         if visited.contains_key(v) {
             return;
@@ -130,10 +130,10 @@ pub fn greedy_fas(g: &Graph<NodeLabel, EdgeLabel>, weight_fn: &dyn Fn(&Edge) -> 
 /// go to the last bucket, and others are placed by their weight differential.
 struct FasState {
     /// The simplified (single-edge) graph: node -> (neighbor -> aggregated weight)
-    out_adj: HashMap<String, HashMap<String, i32>>,
-    in_adj: HashMap<String, HashMap<String, i32>>,
+    out_adj: BTreeMap<String, BTreeMap<String, i32>>,
+    in_adj: BTreeMap<String, BTreeMap<String, i32>>,
     /// Per-node FAS entry tracking in/out weight
-    entries: HashMap<String, FasEntry>,
+    entries: BTreeMap<String, FasEntry>,
     /// Bucket array indexed by (out - in + zero_idx)
     buckets: Vec<VecDeque<String>>,
     /// Offset so that index 0 corresponds to the most negative differential
@@ -141,9 +141,9 @@ struct FasState {
 }
 
 fn build_state(g: &Graph<NodeLabel, EdgeLabel>, weight_fn: &dyn Fn(&Edge) -> i32) -> FasState {
-    let mut out_adj: HashMap<String, HashMap<String, i32>> = HashMap::new();
-    let mut in_adj: HashMap<String, HashMap<String, i32>> = HashMap::new();
-    let mut entries: HashMap<String, FasEntry> = HashMap::new();
+    let mut out_adj: BTreeMap<String, BTreeMap<String, i32>> = BTreeMap::new();
+    let mut in_adj: BTreeMap<String, BTreeMap<String, i32>> = BTreeMap::new();
+    let mut entries: BTreeMap<String, FasEntry> = BTreeMap::new();
     let mut max_in: i32 = 0;
     let mut max_out: i32 = 0;
 
@@ -224,7 +224,7 @@ fn do_greedy_fas(initial_state: &FasState) -> Vec<Edge> {
     let mut entries = initial_state.entries.clone();
     let mut buckets = initial_state.buckets.clone();
     let zero_idx = initial_state.zero_idx;
-    let mut remaining: HashMap<String, bool> = entries.keys().map(|k| (k.clone(), true)).collect();
+    let mut remaining: BTreeMap<String, bool> = entries.keys().map(|k| (k.clone(), true)).collect();
 
     let mut results: Vec<Edge> = Vec::new();
 
@@ -292,7 +292,7 @@ fn do_greedy_fas(initial_state: &FasState) -> Vec<Edge> {
 /// Pop the next valid (still remaining) entry from a bucket.
 fn pop_valid_entry(
     bucket: &mut VecDeque<String>,
-    remaining: &HashMap<String, bool>,
+    remaining: &BTreeMap<String, bool>,
 ) -> Option<String> {
     while let Some(v) = bucket.pop_back() {
         if remaining.contains_key(&v) {
@@ -307,14 +307,14 @@ fn pop_valid_entry(
 #[allow(clippy::too_many_arguments)]
 fn remove_node(
     v: &str,
-    out_adj: &mut HashMap<String, HashMap<String, i32>>,
-    in_adj: &mut HashMap<String, HashMap<String, i32>>,
-    entries: &mut HashMap<String, FasEntry>,
+    out_adj: &mut BTreeMap<String, BTreeMap<String, i32>>,
+    in_adj: &mut BTreeMap<String, BTreeMap<String, i32>>,
+    entries: &mut BTreeMap<String, FasEntry>,
     buckets: &mut [VecDeque<String>],
     zero_idx: usize,
     collect_predecessors: bool,
     results: &mut Vec<Edge>,
-    remaining: &mut HashMap<String, bool>,
+    remaining: &mut BTreeMap<String, bool>,
 ) {
     // Process in-edges: for each predecessor u, reduce u's out_weight
     if let Some(predecessors) = in_adj.remove(v) {

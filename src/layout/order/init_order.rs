@@ -6,7 +6,7 @@
 //!
 //! This approach comes from Gansner, et al., "A Technique for Drawing Directed Graphs."
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use crate::graph::Graph;
 use crate::layout::types::{EdgeLabel, NodeLabel};
@@ -16,7 +16,7 @@ use crate::layout::types::{EdgeLabel, NodeLabel};
 /// Returns a Vec of layers (indexed by rank), each layer containing node IDs
 /// in the order they were first visited.
 pub(crate) fn init_order(g: &Graph<NodeLabel, EdgeLabel>) -> Vec<Vec<String>> {
-    let mut visited = HashSet::new();
+    let mut visited = BTreeSet::new();
 
     // Collect "simple" nodes (those with no compound children)
     let mut simple_nodes: Vec<String> = g
@@ -40,7 +40,7 @@ pub(crate) fn init_order(g: &Graph<NodeLabel, EdgeLabel>) -> Vec<Vec<String>> {
     fn dfs(
         g: &Graph<NodeLabel, EdgeLabel>,
         v: &str,
-        visited: &mut HashSet<String>,
+        visited: &mut BTreeSet<String>,
         layers: &mut Vec<Vec<String>>,
     ) {
         if visited.contains(v) {

@@ -5,7 +5,7 @@
 //!
 //! This algorithm is derived from Barth, et al., "Bilayer Cross Counting."
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::graph::Graph;
 use crate::layout::types::{EdgeLabel, NodeLabel};
@@ -28,7 +28,7 @@ fn two_layer_cross_count(
     south_layer: &[String],
 ) -> usize {
     // Build position index for the south layer
-    let south_pos: HashMap<&str, usize> = south_layer
+    let south_pos: BTreeMap<&str, usize> = south_layer
         .iter()
         .enumerate()
         .map(|(i, v)| (v.as_str(), i))

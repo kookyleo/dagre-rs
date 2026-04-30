@@ -18,7 +18,7 @@ use crate::layout::rank::feasible_tree::{TreeEdgeLabel, TreeNodeLabel, feasible_
 use crate::layout::rank::util::{longest_path, slack};
 use crate::layout::types::{EdgeLabel, NodeLabel};
 use crate::layout::util::simplify;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 /// Runs the network simplex algorithm to assign optimal ranks to each node.
 ///
@@ -176,7 +176,7 @@ fn init_low_lim_values(tree: &mut Graph<TreeNodeLabel, TreeEdgeLabel>, root: Opt
             None => return,
         },
     };
-    let mut visited = HashSet::new();
+    let mut visited = BTreeSet::new();
     dfs_assign_low_lim(tree, &mut visited, 1, &root_node, None);
 }
 
@@ -184,7 +184,7 @@ fn init_low_lim_values(tree: &mut Graph<TreeNodeLabel, TreeEdgeLabel>, root: Opt
 /// Returns the next available lim counter.
 fn dfs_assign_low_lim(
     tree: &mut Graph<TreeNodeLabel, TreeEdgeLabel>,
-    visited: &mut HashSet<String>,
+    visited: &mut BTreeSet<String>,
     next_lim: i32,
     v: &str,
     parent: Option<&str>,
@@ -362,12 +362,12 @@ fn update_ranks(tree: &Graph<TreeNodeLabel, TreeEdgeLabel>, g: &mut Graph<NodeLa
 /// Preorder DFS traversal of an undirected graph starting from a single root.
 fn preorder_undirected(g: &Graph<TreeNodeLabel, TreeEdgeLabel>, root: &str) -> Vec<String> {
     let mut result = Vec::new();
-    let mut visited = HashSet::new();
+    let mut visited = BTreeSet::new();
 
     fn dfs(
         g: &Graph<TreeNodeLabel, TreeEdgeLabel>,
         v: &str,
-        visited: &mut HashSet<String>,
+        visited: &mut BTreeSet<String>,
         result: &mut Vec<String>,
     ) {
         if visited.contains(v) {
@@ -390,12 +390,12 @@ fn preorder_undirected(g: &Graph<TreeNodeLabel, TreeEdgeLabel>, root: &str) -> V
 /// Postorder DFS traversal of an undirected graph visiting all connected components.
 fn postorder_undirected(g: &Graph<TreeNodeLabel, TreeEdgeLabel>, roots: &[&str]) -> Vec<String> {
     let mut result = Vec::new();
-    let mut visited = HashSet::new();
+    let mut visited = BTreeSet::new();
 
     fn dfs(
         g: &Graph<TreeNodeLabel, TreeEdgeLabel>,
         v: &str,
-        visited: &mut HashSet<String>,
+        visited: &mut BTreeSet<String>,
         result: &mut Vec<String>,
     ) {
         if visited.contains(v) {

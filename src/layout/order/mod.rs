@@ -20,7 +20,7 @@ pub(crate) mod resolve_conflicts;
 pub(crate) mod sort;
 pub(crate) mod sort_subgraph;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::graph::Graph;
 use crate::layout::types::{EdgeLabel, GraphLabel, NodeLabel};
@@ -50,7 +50,7 @@ pub(crate) fn order(g: &mut Graph<NodeLabel, EdgeLabel>) {
     let up_ranks: Vec<i32> = (0..mr).rev().collect();
 
     // Build an index: rank -> Vec<node_id> (used to rebuild layer graphs each sweep)
-    let mut nodes_by_rank: HashMap<i32, Vec<String>> = HashMap::new();
+    let mut nodes_by_rank: BTreeMap<i32, Vec<String>> = BTreeMap::new();
     for v in g.nodes() {
         if let Some(node) = g.node(&v) {
             if let Some(rank) = node.rank {
@@ -122,7 +122,7 @@ pub(crate) fn order(g: &mut Graph<NodeLabel, EdgeLabel>) {
 fn sweep_layer_graphs(
     g: &mut Graph<NodeLabel, EdgeLabel>,
     ranks: &[i32],
-    nodes_by_rank: &std::collections::HashMap<i32, Vec<String>>,
+    nodes_by_rank: &std::collections::BTreeMap<i32, Vec<String>>,
     relationship: Relationship,
     bias_right: bool,
 ) {
