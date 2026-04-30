@@ -172,12 +172,7 @@ fn intersect_diamond(rect: &NodeLabel, point: &Point) -> Point {
     let h2 = rect.height / 2.0;
 
     // Diamond vertices in order.
-    let poly = [
-        (cx, cy - h2),
-        (cx + w2, cy),
-        (cx, cy + h2),
-        (cx - w2, cy),
-    ];
+    let poly = [(cx, cy - h2), (cx + w2, cy), (cx, cy + h2), (cx - w2, cy)];
 
     let dx = point.x - cx;
     let dy = point.y - cy;
@@ -201,7 +196,7 @@ fn intersect_diamond(rect: &NodeLabel, point: &Point) -> Point {
         }
         let t = (fx * ey - fy * ex) / denom;
         let u = (fx * dy - fy * dx) / denom;
-        if t >= 0.0 && u >= 0.0 && u <= 1.0 {
+        if t >= 0.0 && (0.0..=1.0).contains(&u) {
             match best_t {
                 None => best_t = Some(t),
                 Some(prev) if t < prev => best_t = Some(t),
